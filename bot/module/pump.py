@@ -1,4 +1,4 @@
-from config import appconfig
+from bot.config import appconfig
 import json
 import requests
 import time
