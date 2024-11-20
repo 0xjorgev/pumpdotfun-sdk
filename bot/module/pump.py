@@ -1,8 +1,11 @@
-from bot.config import appconfig
+from config import appconfig
 import json
 import requests
 import time
 import websockets
+import ssl
+import certifi
+
 
 from enum import Enum
 from solders.transaction import VersionedTransaction
@@ -28,6 +31,7 @@ class TradeRoadmap:
         {"step": 0, "name": "test", "suscription": Suscription.subscribeNewToken},
         {"step": 1, "name": "test", "suscription": Suscription.subscribeTokenTrade},
     ]
+    
 
 
 class Pump:
@@ -40,6 +44,9 @@ class Pump:
         self.traders = []
         self.min_initial_buy = 60000000
         self.token_target_amount = 1
+
+        self.ssl_context = ssl.create_default_context(cafile=certifi.where())
+
 
     def add_account(self, account: str):
         self.accounts.append(account)
@@ -72,7 +79,8 @@ class Pump:
     async def subscribe(self, steps: list):
         step_index = 0
 
-        async with websockets.connect(self.uri_data) as websocket:
+        # SSL context if required in Mac and not on windows
+        async with websockets.connect(self.uri_data, ssl=self.ssl_context) as websocket:
             # Subscribing to token creation events
             while True:
                 suscription = steps[step_index]["suscription"]
@@ -89,6 +97,7 @@ class Pump:
 
                 await websocket.send(json.dumps(payload))
 
+                # MAIN WEBSOCKET THREAT
                 async for message in websocket:
                     msg = json.loads(message)
                     move_to_next_step = False
@@ -133,9 +142,11 @@ class Pump:
                 self.clear_tokens()  # TODO: Change this when more than one token will be checked
                 self.add_token(token=msg["mint"])
                 # testing
-                self.marketMaking(token=msg["mint"])
+                # self.marketMaking(token=msg["mint"])
 
+        # TODO: relase tokens to snipers with redis recods. At this moment we're listening to one token only
         return len(self.tokens) == self.token_target_amount
+
 
     def tokenTradeSuscription(self, msg: str) -> bool:
         # TODO: remove this temporal validation for testing
@@ -279,7 +290,7 @@ class Pump:
                     print(f'Transaction: https://solscan.io/tx/{txSignature}')
                     break
                 except Exception as e:
-                    print("marketMaking->Buy. Transaction failed. retrying again: {}".format(
+                    print("marketMaking->Sell. Transaction failed. retrying again: {}".format(
                         response.json()["error"]["message"]
                     ))
                     time.sleep(appconfig.RETRYING_SECONDS)

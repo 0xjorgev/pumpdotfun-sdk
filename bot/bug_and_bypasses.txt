@@ -1,0 +1,9 @@
+Error:
+    Exception has occurred: SSLCertVerificationError
+    [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1007)
+
+Solution
+    Run in Mac: /Applications/Python\ 3.10/Install\ Certificates.command
+    pip install certifi
+    python3 -m ensurepip --upgrade
+    python3 -m pip install --upgrade pip setuptools
