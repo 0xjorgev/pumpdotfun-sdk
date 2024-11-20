@@ -31,7 +31,7 @@ class TradeRoadmap:
         {"step": 0, "name": "test", "suscription": Suscription.subscribeNewToken},
         {"step": 1, "name": "test", "suscription": Suscription.subscribeTokenTrade},
     ]
-    
+
 
 
 class Pump:
@@ -108,10 +108,10 @@ class Pump:
                         continue
 
                     if suscription.value == Suscription.subscribeNewToken.value:
-                        move_to_next_step = self.newTokenSuscription(msg=msg)
+                        move_to_next_step = self.new_token_suscription(msg=msg)
 
                     if suscription.value == Suscription.subscribeTokenTrade.value:
-                        move_to_next_step = self.tokenTradeSuscription(msg=msg)
+                        move_to_next_step = self.token_trade_suscription(msg=msg)
 
                     # Moving to the next step or going back to the first one
                     if move_to_next_step:
@@ -127,12 +127,12 @@ class Pump:
                 # TODO: add exiting way of ending the program
 
 
-    def newTokenSuscription(self, msg: str) -> bool:
+    def new_token_suscription(self, msg: str) -> bool:
         if "initialBuy" in msg and int(msg["initialBuy"]) > self.min_initial_buy:
             # Listening to a predefined amount of tokens
             if len(self.tokens) < self.token_target_amount:
                 print(
-                    "Symbol: {}. mint: {}. tarder: {}. Initial buy: {}".format(
+                    "New token subscription. Symbol: {}. mint: {}. tarder: {}. Initial buy: {}".format(
                         msg["symbol"],
                         msg["mint"],
                         msg["traderPublicKey"][:5],
@@ -148,7 +148,7 @@ class Pump:
         return len(self.tokens) == self.token_target_amount
 
 
-    def tokenTradeSuscription(self, msg: str) -> bool:
+    def token_trade_suscription(self, msg: str) -> bool:
         # TODO: remove this temporal validation for testing
         if not self.traders and "txType" in msg:
             if TxType.buy.value == msg["txType"]:
@@ -174,12 +174,115 @@ class Pump:
 
         return False
 
-    # def start_suscription(self, suscription=Suscription.subscribeTokenTrade):
-    #     # Run the subscribe function
-    #     asyncio.get_event_loop().run_until_complete(
-    #         self.subscribe(suscription=suscription)
-    #     )
-    def marketMaking(
+
+    def trade(txtype: TxType, token: str, keypair: Keypair, amount: int = None) -> str:
+        """
+            This function allows to BUY or SELL tokens.
+            When BUYING
+            - Amount of SOLs must be specified.
+            When selling, we sell tokens and not solanas.
+            For this MVP version, we're selling 100% of tokens.
+
+            Parameters:
+                tx_type (TxType): The type of transaction (e.g., buy, sell, transfer).
+                token (str): The token symbol or identifier.
+                amount (int | None): The amount to trade (can be an integer when BUYING or None when SELLING).
+                keypair (Keypair): The user's Solana keypair for signing the transaction.
+
+            Returns:
+                str: The transaction signature or identifier.
+        """
+        txSignature = None
+
+        denominated_in_sol = "true" if txtype.value == TxType.buy.value else "false"
+        amount = int(amount) if txtype.value == TxType.buy.value else "100%"
+
+        # BUYING/SELLING tokens with an amount of Solana
+        data = {
+            "publicKey": str(keypair.pubkey()),
+            "action": txtype.value,
+            "mint": token,
+            "amount": amount,                       # amount of SOL or tokens to trade. Can be "100%" when selling
+            "denominatedInSol": denominated_in_sol, # "true" if amount is amount of SOL, "false" if amount is number of tokens
+            "slippage": appconfig.SLIPPAGE,         # percent slippage allowed
+            "priorityFee": appconfig.FEES,          # amount to use as priority fee
+            "pool": "pump"                          # exchange to trade on. "pump" or "raydium"
+        }
+
+        response = None
+        retries = 0
+        while True:
+            try:
+                response = requests.post(
+                    url=appconfig.PUMPFUN_TRANSACTION_URL,
+                    data=data
+                )
+                if response.status_code != 200:
+                    retries += 1
+
+                    print("Trade->{} Error: {} returned a status code {}. Retrying again {} times. Response: {}".format(
+                        txtype.value,
+                        appconfig.PUMPFUN_TRANSACTION_URL,
+                        response.status_code,
+                        retries,
+                        response
+                    ))
+                    time.sleep(appconfig.RETRYING_SECONDS)
+                    continue
+            except Exception as e:
+                retries += 1
+                print("Trade->{} Exception: {}. Retrying again {} times. Message: {}".format(
+                    txtype.value,
+                    appconfig.PUMPFUN_TRANSACTION_URL,
+                    retries,
+                    e
+                ))
+                time.sleep(appconfig.RETRYING_SECONDS)
+                continue
+            
+
+            tx = VersionedTransaction(
+                VersionedTransaction.from_bytes(response.content).message,
+                [keypair]
+            )
+
+            config = RpcSendTransactionConfig(
+                preflight_commitment=CommitmentLevel.Confirmed
+            )
+            txPayload = SendVersionedTransaction(tx, config)
+
+            try:
+                response = requests.post(
+                    url=appconfig.RPC_URL,
+                    headers={"Content-Type": "application/json"},
+                    data=txPayload.to_json()
+                )
+
+                txSignature = response.json()['result']
+                print("Trade->{} Transaction: https://solscan.io/tx/{}".format(
+                    txtype.value,
+                    txSignature
+                ))
+                return txSignature
+
+            except Exception as e:
+                retries += 1
+                print("Trade->{} Transaction failed. Retrying again {} times: {}".format(
+                    txtype.value,
+                    retries,
+                    response.json()["error"]["message"]
+                ))
+                
+                time.sleep(appconfig.RETRYING_SECONDS)
+                if retries == appconfig.MARKET_MAKING_RETRIES:
+                    # TODO: send a telegram message notifying that a manual sell must be done
+                    print("Trade->{} Error: Max retries reached. Exiting".format(txtype.value))
+                    return txSignature
+
+                continue
+
+
+    def market_making(
         self,
         token: str,
         amount: int = appconfig.MARKETMAKING_SOL_BUY_AMOUNT
@@ -192,106 +295,6 @@ class Pump:
         """
         keypair = Keypair.from_base58_string(appconfig.PRIVKEY)
 
-        # BUYING tokens with an amount of Solana
-        data = {
-            "publicKey": str(keypair.pubkey()),
-            "action": TxType.buy.value,
-            "mint": token,
-            "amount": amount,                # amount of SOL or tokens to trade
-            "denominatedInSol": "true",      # "true" if amount is amount of SOL, "false" if amount is number of tokens
-            "slippage": appconfig.SLIPPAGE,  # percent slippage allowed
-            "priorityFee": appconfig.FEES,   # amount to use as priority fee
-            "pool": "pump"                   # exchange to trade on. "pump" or "raydium"
-        }
+        txn = self.buy(token=token, amount=amount, keypair=keypair)
 
-        response = None
-        retries = 0
-        while True:
-            response = requests.post(
-                url=appconfig.PUMPFUN_TRANSACTION_URL,
-                data=data
-            )
-            if response.status_code != 200:
-                time.sleep(appconfig.RETRYING_SECONDS)
-                continue
-
-            tx = VersionedTransaction(
-                VersionedTransaction.from_bytes(response.content).message,
-                [keypair]
-            )
-
-            config = RpcSendTransactionConfig(
-                preflight_commitment=CommitmentLevel.Confirmed
-            )
-            txPayload = SendVersionedTransaction(tx, config)
-
-            response = requests.post(
-                url=appconfig.RPC_URL,
-                headers={"Content-Type": "application/json"},
-                data=txPayload.to_json()
-            )
-            if response.status_code == 200:
-                try:
-                    txSignature = response.json()['result']
-                    print(f'Transaction: https://solscan.io/tx/{txSignature}')
-                    break
-
-                except Exception as e:
-                    print("marketMaking->Buy. Transaction failed. retrying again: {}".format(
-                        response.json()["error"]["message"]
-                    ))
-                    retries += 1
-                    time.sleep(appconfig.RETRYING_SECONDS)
-                    if retries == appconfig.MARKET_MAKING_RETRIES:
-                        print("marketMaking.error-> Buy: Max retries reached. Exiting")
-                        break
-                    continue
-
-        # SELLING 100% of tokens
-        data = {
-            "publicKey": keypair.pubkey(),
-            "action": TxType.sell.value,
-            "mint": token,
-            "amount": "100%",
-            "denominatedInSol": "false",
-            "slippage": appconfig.SLIPPAGE,
-            "priorityFee": appconfig.FEES,
-            "pool": "pump"
-        }
-
-        response = None
-        while True:
-            response = requests.post(
-                url=appconfig.PUMPFUN_TRANSACTION_URL,
-                data=data
-            )
-            if response.status_code != 200:
-                time.sleep(appconfig.RETRYING_SECONDS)
-                continue
-
-            tx = VersionedTransaction(
-                VersionedTransaction.from_bytes(response.content).message,
-                [keypair]
-            )
-
-            config = RpcSendTransactionConfig(
-                preflight_commitment=CommitmentLevel.Confirmed
-            )
-            txPayload = SendVersionedTransaction(tx, config)
-
-            response = requests.post(
-                url=appconfig.RPC_URL,
-                headers={"Content-Type": "application/json"},
-                data=txPayload.to_json()
-            )
-            if response.status_code == 200:
-                try:
-                    txSignature = response.json()['result']
-                    print(f'Transaction: https://solscan.io/tx/{txSignature}')
-                    break
-                except Exception as e:
-                    print("marketMaking->Sell. Transaction failed. retrying again: {}".format(
-                        response.json()["error"]["message"]
-                    ))
-                    time.sleep(appconfig.RETRYING_SECONDS)
-                    continue
+        
