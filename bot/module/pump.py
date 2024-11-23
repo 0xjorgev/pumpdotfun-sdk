@@ -6,6 +6,8 @@ import websockets
 import ssl
 import certifi
 
+from bot.lib.utils import TxType
+
 
 from enum import Enum
 from solders.transaction import VersionedTransaction
@@ -19,11 +21,13 @@ class Suscription(Enum):
     subscribeNewToken = "subscribeNewToken"
     subscribeAccountTrade = "subscribeAccountTrade"
     subscribeTokenTrade = "subscribeTokenTrade"
+    unsubscribeTokenTrade = "unsubscribeTokenTrade"
 
 
-class TxType(Enum):
-    buy = "buy"
-    sell = "sell"
+class Redis(Enum):
+    readToken = "readToken"
+    selectToken = "selectToken"
+    claseToken = "closeToken"
 
 
 class TradeRoadmap:
@@ -31,20 +35,44 @@ class TradeRoadmap:
         {"step": 0, "name": "test", "suscription": Suscription.subscribeNewToken},
         {"step": 1, "name": "test", "suscription": Suscription.subscribeTokenTrade},
     ]
+    sniper_1 = [
+        {"step": 0, "name": "WAIT_FOR_TOKEN", "redis": Redis.readToken},
+        {"step": 1, "name": "TRADE_TOKEN", "action": TxType.buy},
+        {"step": 2, "name": "TOKEN_SUBSCRIPTION", "suscription": Suscription.subscribeTokenTrade},
+        {
+            "step": 3,
+            "name": "TRADE_TOKEN",
+            "trade": TxType.sell,
+            "criteria": {
+                "max_seconds_between_buys": 3,
+                "trader_has_sold": True,
+                "same_balance": True,
+                "max_seconds_in_market": 30
+            }
+        },
+        {"step": 4, "name": "test", "suscription": Suscription.unsubscribeTokenTrade},
+        {"step": 5, "name": "MARK_TOKEN", "redis": Redis.claseToken},
+    ]
 
 
 
 class Pump:
     sniping_token_list = []
 
-    def __init__(self) -> None:
-        self.uri_data = "wss://pumpportal.fun/api/data"
+    def __init__(
+            self,
+            sniper_name: str,
+            amount: float = appconfig.TRADING_DEFAULT_AMOUNT
+    ) -> None:
+        self.uri_data = appconfig.PUMPFUN_WEBSOCKET
         self.accounts = []
         self.tokens = []
         self.traders = []
         self.min_initial_buy = 60000000
         self.token_target_amount = 1
-
+        self.trading_amount = amount
+        self.sniper_name = sniper_name
+        self.keypair = Keypair.from_base58_string(appconfig.PRIVKEY)
         self.ssl_context = ssl.create_default_context(cafile=certifi.where())
 
 
@@ -83,47 +111,85 @@ class Pump:
         async with websockets.connect(self.uri_data, ssl=self.ssl_context) as websocket:
             # Subscribing to token creation events
             while True:
-                suscription = steps[step_index]["suscription"]
+                step_index = 0 if step_index >= len(steps) else step_index
+                roadmap_name = steps[step_index]["name"]
+                if step_index == 0:
+                    print("subscribe -> restarting roadmap '{}'".format(roadmap_name))
 
-                payload = {
-                    "method": suscription.value,
-                }
+                step = steps[step_index]
 
-                if suscription.value == Suscription.subscribeAccountTrade.value:
-                    payload["keys"] = self.accounts
+                
+                if "redis" in step:
+                    # Listen to redis change
+                    if step["redis"] == Redis.readToken:
+                        # TODO: subscribe to redis websocket as a separate function
+                        print("Reading redis and waiting for a new token")
+                        # TODO: Mark that token with the sniper name
+                        print("Token {} assigned to sniper {} to trade {}".format(
+                            self.tokens[0],
+                            self.sniper_name,
+                            self.trading_amount
+                        ))
+                        step_index += 1
 
-                if suscription.value == Suscription.subscribeTokenTrade.value:
-                    payload["keys"] = self.tokens
-
-                await websocket.send(json.dumps(payload))
-
-                # MAIN WEBSOCKET THREAT
-                async for message in websocket:
-                    msg = json.loads(message)
-                    move_to_next_step = False
-
-                    # This is the first message we get when we connect
-                    if "message" in msg:
-                        print(msg["message"])
+                        continue
+                    if step["redis"] == Redis.claseToken:
+                        # Save in redis the amount of buy and sell with timestamp. Calculate P&L
+                        step_index += 1
+                        continue
+                
+                if "action" in step:
+                    if step["action"] == TxType.buy:
+                        txn = self.trade(
+                            txtype=TxType.buy,
+                            token=self.add_token[0],
+                            keypair=self.keypair,
+                            amount=self.trading_amount
+                        )
+                        step_index += 1
                         continue
 
-                    if suscription.value == Suscription.subscribeNewToken.value:
-                        move_to_next_step = self.new_token_suscription(msg=msg)
+
+                if "subscription" in step:
+                    suscription = steps[step_index]["suscription"]
+
+                    payload = {
+                        "method": suscription.value,
+                    }
+
+                    if suscription.value == Suscription.subscribeAccountTrade.value:
+                        payload["keys"] = self.accounts
 
                     if suscription.value == Suscription.subscribeTokenTrade.value:
-                        move_to_next_step = self.token_trade_suscription(msg=msg)
+                        payload["keys"] = self.tokens
 
-                    # Moving to the next step or going back to the first one
-                    if move_to_next_step:
-                        step_index += 1
+                    if suscription.value == Suscription.unsubscribeTokenTrade.value:
+                        payload["keys"] = self.tokens
+
+                    await websocket.send(json.dumps(payload))
+
+                    # MAIN WEBSOCKET THREAT
+                    async for message in websocket:
+                        msg = json.loads(message)
                         move_to_next_step = False
-                        step_index = 0 if step_index >= len(steps) else step_index
-                        roadmap_name = steps[step_index]["name"]
-                        if step_index == 0:
-                            print("subscribe -> restarting roadmap '{}'".format(roadmap_name))
-                        
-                        break
-                
+
+                        # This is the first message we get when we connect
+                        if "message" in msg:
+                            print(msg["message"])
+                            continue
+
+                        if suscription.value == Suscription.subscribeNewToken.value:
+                            move_to_next_step = self.new_token_suscription(msg=msg)
+
+                        if suscription.value == Suscription.subscribeTokenTrade.value:
+                            move_to_next_step = self.token_trade_suscription(msg=msg)
+
+                        # Moving to the next step or going back to the first one
+                        if move_to_next_step:
+                            step_index += 1
+                            move_to_next_step = False
+                            break
+                    
                 # TODO: add exiting way of ending the program
 
 
@@ -175,7 +241,7 @@ class Pump:
         return False
 
 
-    def trade(txtype: TxType, token: str, keypair: Keypair, amount: int = None) -> str:
+    def trade(self, txtype: TxType, token: str, keypair: Keypair, amount: float = None) -> str:
         """
             This function allows to BUY or SELL tokens.
             When BUYING
@@ -186,7 +252,7 @@ class Pump:
             Parameters:
                 tx_type (TxType): The type of transaction (e.g., buy, sell, transfer).
                 token (str): The token symbol or identifier.
-                amount (int | None): The amount to trade (can be an integer when BUYING or None when SELLING).
+                amount (float | None): The amount to trade (can be an float when BUYING or None when SELLING).
                 keypair (Keypair): The user's Solana keypair for signing the transaction.
 
             Returns:
@@ -212,6 +278,11 @@ class Pump:
         response = None
         retries = 0
         while True:
+            if retries == appconfig.TRADING_RETRIES:
+                # TODO: send a telegram message notifying that a manual sell must be done
+                print("Trade->{} Error: Max retries reached. Exiting".format(txtype.value))
+                break
+
             try:
                 response = requests.post(
                     url=appconfig.PUMPFUN_TRANSACTION_URL,
@@ -240,9 +311,10 @@ class Pump:
                 time.sleep(appconfig.RETRYING_SECONDS)
                 continue
             
-
+            vst = VersionedTransaction.from_bytes(response.content)
+            msg = vst.message
             tx = VersionedTransaction(
-                VersionedTransaction.from_bytes(response.content).message,
+                msg,
                 [keypair]
             )
 
@@ -263,7 +335,8 @@ class Pump:
                     txtype.value,
                     txSignature
                 ))
-                return txSignature
+                break
+                
 
             except Exception as e:
                 retries += 1
@@ -274,12 +347,8 @@ class Pump:
                 ))
                 
                 time.sleep(appconfig.RETRYING_SECONDS)
-                if retries == appconfig.MARKET_MAKING_RETRIES:
-                    # TODO: send a telegram message notifying that a manual sell must be done
-                    print("Trade->{} Error: Max retries reached. Exiting".format(txtype.value))
-                    return txSignature
 
-                continue
+        return txSignature
 
 
     def market_making(
