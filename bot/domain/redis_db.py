@@ -2,14 +2,8 @@ import redis
 from redisearch import Client, NumericField
 from datetime import datetime
 from bot.config import appconfig
-from bot.lib.utils import TxType
+from bot.lib.utils import TxType, Path, Trader
 from typing import List, Dict
-
-
-class Path:
-    @staticmethod
-    def rootPath():
-        return "$"
 
 
 # Connect to Redis
@@ -21,7 +15,7 @@ client = redis.StrictRedis(
 
 # Use SCAN to find keys with "Key*" prefix
 
-class Redis:
+class RedisDB:
     key_prefix = "token"
     index_name = "token_idx"
 
@@ -29,18 +23,21 @@ class Redis:
         self.client = redis.StrictRedis(
             host=appconfig.REDIS_HOST,
             port=appconfig.REDIS_PORT,
-            db=0,
+            db=0, # DB index number
             decode_responses=True
         )
         self.search_client = Client("token_idx", conn=self.client)
         self.create_index()
+        # Event listener
+        self.pubsub = self.client.pubsub()
+        self.pubsub.psubscribe({"__keyspace@0__:*"})
 
     def index_exists(self, index_name):
         indexes = self.client.execute_command("FT._LIST")
         return index_name in indexes
 
     def create_index(self):
-        if not self.index_exists(Redis.index_name):
+        if not self.index_exists(RedisDB.index_name):
             # Create the index on JSON fields
             self.search_client.create_index([
                 NumericField("amount"),
@@ -48,12 +45,11 @@ class Redis:
                 NumericField("is_traded")
             ])
         else:
-            print("Index '{}' already exists".format(Redis.index_name))
-
+            print("Index '{}' already exists".format(RedisDB.index_name))
 
     def set_token(self, token: str, token_data: Dict)->bool:
         response = self.client.json().set(
-            name="{}:{}".format(Redis.key_prefix, token),
+            name="{}:{}".format(RedisDB.key_prefix, token),
             path=Path.rootPath(),
             obj=token_data
         )
@@ -63,7 +59,7 @@ class Redis:
         keys = self.client.scan_iter(match=pattern)
         return keys
     
-    def get_fresh_tokens(self) -> List[Dict]:
+    def get_fresh_tokens(self, trader=Trader) -> List[Dict]:
         tokens = []
         # Search for all tokens where is_traded = False
         token_keys = self.get_token_keys()
@@ -72,11 +68,19 @@ class Redis:
         # results = self.search_client.search(query)
         for key in token_keys:
             data = client.json().get(key)
-            if data and "is_traded" in data and data["is_traded"] == 0:
+            if not data:
+                continue
+
+            # Extract and validate fields
+            is_traded = data.get("is_traded") == 0
+            trader_match = data.get("trader", "unknown") == trader.value
+
+            if is_traded and trader_match:
                 token = {
                     "key": key,
                     "mint": key.replace("token:", ""),
                     "amount": float(data["amount"]),
+                    "trader": data["trader"],
                     "is_traded": True if int(data["is_traded"]) == 1 else False,
                     "timestamp": datetime.fromtimestamp(int(data["timestamp"])),
                     "name": data["name"],
@@ -86,7 +90,14 @@ class Redis:
 
         return tokens
 
-    def update_token(self, token: Dict, txn: str, action: TxType, amount: float) -> Dict:
+    def update_token(
+            self,
+            token: Dict,
+            txn: str,
+            action: TxType,
+            amount: float,
+            trader: Trader
+        ) -> Dict:
 
         key = token["key"]
         data = token.copy()
@@ -101,6 +112,7 @@ class Redis:
             "{}_txn".format(action.value): txn,             # New transaction string
             "is_traded": 1,
             "{}_amount".format(action.value): amount,       # Specifying the amount of buy/sell action
+            "trader": trader.value
         }
 
         data.update(new_data)
@@ -113,22 +125,39 @@ class Redis:
         return token
 
 
-if __name__ == "__main__":
-    redis_object = Redis()
+def test_create_record(mint_address: str):
+    redis_object = RedisDB()
     is_traded = False
     token_data = {
         "name": "Some Day",
         "ticker": "SMD",
         "amount": 15.500,
         "is_traded": 1 if is_traded else 0,
-        "timestamp": datetime.now().timestamp()
+        "timestamp": datetime.now().timestamp(),
+        "trader": Trader.sniper.value
     }
-    redis_object.set_token(token="asdf4", token_data=token_data)
-    tokens = redis_object.get_fresh_tokens()
+    redis_object.set_token(token=mint_address, token_data=token_data)
+
+
+def test_update_record():
+    redis_object = RedisDB()
+    tokens = redis_object.get_fresh_tokens(trader=Trader.sniper)
     
     print(tokens)
 
     for token in tokens:
-        data = redis_object.update_token(token=token, txn="txn1", action=TxType.buy, amount=15.500)
-        data = redis_object.update_token(token=data, txn="txn2", action=TxType.sell, amount=45.500)
+        data = redis_object.update_token(
+            token=token,
+            txn="txn1",
+            action=TxType.buy,
+            amount=15.500,
+            trader=Trader.sniper
+        )
+        data = redis_object.update_token(
+            token=data,
+            txn="txn2",
+            action=TxType.sell,
+            amount=45.500,
+            trader=Trader.sniper
+        )
         print(data)

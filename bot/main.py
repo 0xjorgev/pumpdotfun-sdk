@@ -4,10 +4,10 @@ from module.pump import Pump, TradeRoadmap
 
 
 async def main():
-    pump = Pump()
+    pump = Pump(sniper_name="sniper1")
 
     tasks = [
-        pump.subscribe(steps=TradeRoadmap.test)
+        pump.subscribe(steps=TradeRoadmap.sniper_1)
     ]
 
     await asyncio.gather(*tasks)

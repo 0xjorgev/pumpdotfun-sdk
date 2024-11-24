@@ -2,16 +2,28 @@
 "version": "0.2.0",
 "configurations": [
     {
-    "name": "Debug redis_db.py",
-    "type": "python",
-    "request": "launch",
-    "program": "${workspaceFolder}/bot/domain/redis_db.py",
-    "console": "integratedTerminal",
-    "cwd": "${workspaceFolder}",
-    "env": {
-        "PYTHONPATH": "${workspaceFolder}"
+        "name": "Debug redis_db.py",
+        "type": "python",
+        "request": "launch",
+        "program": "${workspaceFolder}/bot/domain/redis_db.py",
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "env": {
+            "PYTHONPATH": "${workspaceFolder}"
+        },
+        "justMyCode": false
     },
-    "justMyCode": false
+    {
+        "name": "Debug main.py",
+        "type": "python",
+        "request": "launch",
+        "program": "${workspaceFolder}/bot/main.py",
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "env": {
+            "PYTHONPATH": "${workspaceFolder}"
+        },
+        "justMyCode": false
     }
 ]
 }

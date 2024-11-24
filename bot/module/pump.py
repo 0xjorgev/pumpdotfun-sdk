@@ -1,4 +1,4 @@
-from config import appconfig
+import asyncio
 import json
 import requests
 import time
@@ -6,7 +6,9 @@ import websockets
 import ssl
 import certifi
 
-from bot.lib.utils import TxType
+from bot.lib.utils import TxType, Trader
+from config import appconfig
+from domain.redis_db import RedisDB
 
 
 from enum import Enum
@@ -28,6 +30,7 @@ class Redis(Enum):
     readToken = "readToken"
     selectToken = "selectToken"
     claseToken = "closeToken"
+    readTraders = "readTraders"
 
 
 class TradeRoadmap:
@@ -35,22 +38,42 @@ class TradeRoadmap:
         {"step": 0, "name": "test", "suscription": Suscription.subscribeNewToken},
         {"step": 1, "name": "test", "suscription": Suscription.subscribeTokenTrade},
     ]
+    sniper_copytrade = [ # TODO: to be developed
+        {"step": 0, "name": "WAIT_FOR_TRADERS", "redis": Redis.readTraders},
+        {"step": 1, "name": "TRADER_SUBSCRIPTION", "suscription": Suscription.subscribeNewToken},
+        {"step": 2, "name": "TRADE_TOKEN", "action": TxType.buy},
+        {
+            "step": 3,
+            "name": "TOKEN_SUBSCRIPTION",
+            "suscription": Suscription.subscribeTokenTrade,
+            "criteria_out": {
+                "copytrade_sell": True,
+                "same_balance": True,
+                "market_inactivity": 30
+            }
+        },
+        {"step": 4, "name": "TRADE_TOKEN", "trade": TxType.sell},
+        {"step": 5, "name": "UNSUBSCRIBE_TO_TOKEN", "suscription": Suscription.unsubscribeTokenTrade},
+        {"step": 6, "name": "MARK_TOKEN", "redis": Redis.claseToken},
+
+    ]
     sniper_1 = [
         {"step": 0, "name": "WAIT_FOR_TOKEN", "redis": Redis.readToken},
         {"step": 1, "name": "TRADE_TOKEN", "action": TxType.buy},
-        {"step": 2, "name": "TOKEN_SUBSCRIPTION", "suscription": Suscription.subscribeTokenTrade},
         {
-            "step": 3,
-            "name": "TRADE_TOKEN",
-            "trade": TxType.sell,
-            "criteria": {
+            "step": 2,
+            "name": "TOKEN_SUBSCRIPTION",
+            "suscription": Suscription.subscribeTokenTrade,
+            "criteria_out": {
                 "max_seconds_between_buys": 3,
-                "trader_has_sold": True,
+                "developer_has_sold": True,
                 "same_balance": True,
+                "market_inactivity": 10,
                 "max_seconds_in_market": 30
             }
         },
-        {"step": 4, "name": "test", "suscription": Suscription.unsubscribeTokenTrade},
+        {"step": 3, "name": "TRADE_TOKEN", "trade": TxType.sell},
+        {"step": 4, "name": "UNSUBSCRIBE_TO_TOKEN", "suscription": Suscription.unsubscribeTokenTrade},
         {"step": 5, "name": "MARK_TOKEN", "redis": Redis.claseToken},
     ]
 
@@ -106,11 +129,14 @@ class Pump:
 
     async def subscribe(self, steps: list):
         step_index = 0
+        redisdb = RedisDB()
+        await asyncio.sleep(2)  # Wait 2 seconds for the redis connection to start
 
-        # SSL context if required in Mac and not on windows
+        # SSL context is required in Mac and not on windows
         async with websockets.connect(self.uri_data, ssl=self.ssl_context) as websocket:
             # Subscribing to token creation events
             while True:
+                # Step index reset if necessary
                 step_index = 0 if step_index >= len(steps) else step_index
                 roadmap_name = steps[step_index]["name"]
                 if step_index == 0:
@@ -118,13 +144,24 @@ class Pump:
 
                 step = steps[step_index]
 
-                
+                # REDIS DB HANDLING
                 if "redis" in step:
                     # Listen to redis change
                     if step["redis"] == Redis.readToken:
-                        # TODO: subscribe to redis websocket as a separate function
-                        print("Reading redis and waiting for a new token")
-                        # TODO: Mark that token with the sniper name
+                        for message in redisdb.pubsub.listen():
+                            if message["type"] == "psubscribe":
+                                print("Subscribed to redis")
+                            if message["type"] == "pmessage":
+                                # Parse the message
+                                key = message["channel"].split(":")[-1]
+                                event = message["data"]
+                                print(f"Event '{event}' detected for key '{key}'")
+                                # TODO: 
+                                # - Take key and retrieve token from redis
+                                # - move to next step and update the token as being traded
+                                # - ignore token that are not fresh
+                                # - safely exit this listening
+                        
                         print("Token {} assigned to sniper {} to trade {}".format(
                             self.tokens[0],
                             self.sniper_name,
@@ -216,9 +253,9 @@ class Pump:
 
     def token_trade_suscription(self, msg: str) -> bool:
         # TODO: remove this temporal validation for testing
-        if not self.traders and "txType" in msg:
-            if TxType.buy.value == msg["txType"]:
-                self.add_trader(trader=msg["traderPublicKey"])
+        # if not self.traders and "txType" in msg:
+        #     if TxType.buy.value == msg["txType"]:
+        #         self.add_trader(trader=msg["traderPublicKey"])
 
         if "traderPublicKey" in msg and msg["traderPublicKey"] in self.traders:
             if TxType.buy.value == msg["txType"]:

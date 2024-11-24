@@ -19,12 +19,39 @@ redis-stack-server --version
 # Start redis stack
 brew services start redis
 
-
+#########################################################
 # Redis Stack on docker
 docker pull redis/redis-stack:latest
-docker run -d --name redis-stack -p 6379:6379 -p 8001:8001 redis/redis-stack:latest
+# Docker image comes without redis.config file
+# OPTION 1: start container and pass variable
+docker run -d --name redis-stack \
+    -p 6379:6379 \
+    -e "REDIS_ARGS=--notify-keyspace-events KA$" \
+    redis/redis-stack:latest
+
+# OPTION 2: start container with a config file
+### In my local machine: downloan latest redis.conf file
+wget https://raw.githubusercontent.com/redis/redis/unstable/redis.conf -O redis.conf
+vim redis.config
+### add this 
+notify-keyspace-events KA$
+docker run -d --name redis-stack \
+    -p 6379:6379 \
+    -v $(pwd)/redis.conf:/usr/local/etc/redis/redis.conf \
+    redis/redis-stack:latest \
+    redis-server /usr/local/etc/redis/redis.con
+
+# Validate the configuration is enabled  #####
+docker exec -it redis-stack redis-cli
+CONFIG GET notify-keyspace-events
+### You should see a response like this:
+1) "notify-keyspace-events"
+2) "AK"
+## If required
 docker stop redis-stack
 docker start redis-stack
+#########################################################
+
 
 
 JSON.SET token:12345 $ '[{"amount":500,"timestamp":1690228321,"is_traded":0}]' 
