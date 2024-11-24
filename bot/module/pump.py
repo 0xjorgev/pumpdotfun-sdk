@@ -10,13 +10,14 @@ from bot.lib.utils import TxType, Trader
 from config import appconfig
 from domain.redis_db import RedisDB
 
-
 from enum import Enum
 from solders.transaction import VersionedTransaction
 from solders.keypair import Keypair
 from solders.commitment_config import CommitmentLevel
 from solders.rpc.requests import SendVersionedTransaction
 from solders.rpc.config import RpcSendTransactionConfig
+
+from typing import Dict
 
 
 class Suscription(Enum):
@@ -29,7 +30,7 @@ class Suscription(Enum):
 class Redis(Enum):
     readToken = "readToken"
     selectToken = "selectToken"
-    claseToken = "closeToken"
+    closeToken = "closeToken"
     readTraders = "readTraders"
 
 
@@ -46,15 +47,15 @@ class TradeRoadmap:
             "step": 3,
             "name": "TOKEN_SUBSCRIPTION",
             "suscription": Suscription.subscribeTokenTrade,
-            "criteria_out": {
+            "criteria": {
                 "copytrade_sell": True,
                 "same_balance": True,
                 "market_inactivity": 30
             }
         },
-        {"step": 4, "name": "TRADE_TOKEN", "trade": TxType.sell},
+        {"step": 4, "name": "TRADE_TOKEN", "action": TxType.sell},
         {"step": 5, "name": "UNSUBSCRIBE_TO_TOKEN", "suscription": Suscription.unsubscribeTokenTrade},
-        {"step": 6, "name": "MARK_TOKEN", "redis": Redis.claseToken},
+        {"step": 6, "name": "MARK_TOKEN", "redis": Redis.closeToken},
 
     ]
     sniper_1 = [
@@ -64,7 +65,7 @@ class TradeRoadmap:
             "step": 2,
             "name": "TOKEN_SUBSCRIPTION",
             "suscription": Suscription.subscribeTokenTrade,
-            "criteria_out": {
+            "criteria": {
                 "max_seconds_between_buys": 3,
                 "developer_has_sold": True,
                 "same_balance": True,
@@ -72,9 +73,9 @@ class TradeRoadmap:
                 "max_seconds_in_market": 30
             }
         },
-        {"step": 3, "name": "TRADE_TOKEN", "trade": TxType.sell},
+        {"step": 3, "name": "TRADE_TOKEN", "action": TxType.sell},
         {"step": 4, "name": "UNSUBSCRIBE_TO_TOKEN", "suscription": Suscription.unsubscribeTokenTrade},
-        {"step": 5, "name": "MARK_TOKEN", "redis": Redis.claseToken},
+        {"step": 5, "name": "CLOSE_TOKEN", "grooming": Redis.closeToken},
     ]
 
 
@@ -84,20 +85,30 @@ class Pump:
 
     def __init__(
             self,
-            sniper_name: str,
-            amount: float = appconfig.TRADING_DEFAULT_AMOUNT
+            executor_name: str,
+            trader_type: Trader,
+            amount: float = appconfig.TRADING_DEFAULT_AMOUNT,
+            target: float = appconfig.TRADING_EXPECTED_GAIN_IN_PERCENTAGE
     ) -> None:
         self.uri_data = appconfig.PUMPFUN_WEBSOCKET
         self.accounts = []
         self.tokens = []
         self.traders = []
+        self.executor_name = executor_name
+        self.trader_type = trader_type
         self.min_initial_buy = 60000000
-        self.token_target_amount = 1
+        self.tokens_to_be_traded = appconfig.TRADING_TOKENS_AT_THE_SAME_TIME
         self.trading_amount = amount
-        self.sniper_name = sniper_name
+        self.trading_sell_amount = amount * (1 + target)
+        
         self.keypair = Keypair.from_base58_string(appconfig.PRIVKEY)
         self.ssl_context = ssl.create_default_context(cafile=certifi.where())
+        self.balance = self.get_balance()
 
+
+    # TODO: get balance from wallet
+    def get_balance(self):
+        return 10000
 
     def add_account(self, account: str):
         self.accounts.append(account)
@@ -107,8 +118,12 @@ class Pump:
             self.accounts.pop(self.accounts.index(account))
 
     # Tokens to pay attention to
-    def add_token(self, token: str):
+    def add_token(self, token: Dict):
         self.tokens.append(token)
+    
+    def remove_token(self, token: str):
+        if token in self.tokens:
+            self.tokens.pop(self.accounts.index(token))
 
     def clear_tokens(self):
         self.tokens = []
@@ -141,6 +156,13 @@ class Pump:
                 roadmap_name = steps[step_index]["name"]
                 if step_index == 0:
                     print("subscribe -> restarting roadmap '{}'".format(roadmap_name))
+                    
+
+                
+                print("Step {}: {}".format(
+                    step_index,
+                    steps[step_index]["name"]
+                ))
 
                 step = steps[step_index]
 
@@ -153,24 +175,54 @@ class Pump:
                                 print("Subscribed to redis")
                             if message["type"] == "pmessage":
                                 # Parse the message
-                                key = message["channel"].split(":")[-1]
-                                event = message["data"]
-                                print(f"Event '{event}' detected for key '{key}'")
-                                # TODO: 
+                                key = ":".join(message["channel"].split(":")[1:])
                                 # - Take key and retrieve token from redis
+                                tokens = redisdb.get_fresh_tokens(
+                                    trader=Trader.sniper,
+                                    mint_address=key
+                                )
+                                # - Ignore token that are not fresh or for not the current trader type
+                                if not tokens:
+                                    continue
+                                # - Get token information
+                                # TODO: snipe againt to more than one token at the same time
+                                token = tokens[0]
+
+                                mint = token["mint"]
+                                amount = token["amount"]
+                                
+                                if self.balance >= amount:
+                                    self.trading_amount = amount
+                                else:
+                                    print("{}: Not enough balance for Token {} and amount {}. Balance is {}".format(
+                                        self.executor_name,
+                                        mint,
+                                        amount,
+                                        self.balance
+                                    ))
+                                    continue
+                                
                                 # - move to next step and update the token as being traded
-                                # - ignore token that are not fresh
+                                token = redisdb.update_token(
+                                    token=token,
+                                    checked_as_being_traded=True,
+                                    balance=self.balance
+                                )
+                                self.add_token(token=token)
+
                                 # - safely exit this listening
+                                redisdb.pubsub.close()
+                                break
                         
-                        print("Token {} assigned to sniper {} to trade {}".format(
-                            self.tokens[0],
-                            self.sniper_name,
+                        print("Token {} assigned to {} to trade {}".format(
+                            self.tokens[0]["mint"],
+                            self.executor_name,
                             self.trading_amount
                         ))
                         step_index += 1
 
                         continue
-                    if step["redis"] == Redis.claseToken:
+                    if step["redis"] == Redis.closeToken:
                         # Save in redis the amount of buy and sell with timestamp. Calculate P&L
                         step_index += 1
                         continue
@@ -179,10 +231,24 @@ class Pump:
                     if step["action"] == TxType.buy:
                         txn = self.trade(
                             txtype=TxType.buy,
-                            token=self.add_token[0],
+                            token=self.add_token[0]["mint"],
                             keypair=self.keypair,
                             amount=self.trading_amount
                         )
+                        # TODO: update token record in redis
+
+                        step_index += 1
+                        continue
+
+                    if step["action"] == TxType.sell:
+                        txn = self.trade(
+                            txtype=TxType.buy,
+                            token=self.add_token[0]["mint"],
+                            keypair=self.keypair,
+                            amount=None
+                        )
+                        # TODO: update token record in redis
+
                         step_index += 1
                         continue
 
@@ -219,21 +285,31 @@ class Pump:
                             move_to_next_step = self.new_token_suscription(msg=msg)
 
                         if suscription.value == Suscription.subscribeTokenTrade.value:
-                            move_to_next_step = self.token_trade_suscription(msg=msg)
+                            move_to_next_step = self.validate_criteria(
+                                msg=msg,
+                                criteria=steps[step_index]["criteria"]
+                            )
 
-                        # Moving to the next step or going back to the first one
+                        # Moving to the next step
                         if move_to_next_step:
                             step_index += 1
                             move_to_next_step = False
                             break
-                    
-                # TODO: add exiting way of ending the program
+
+
+                if "grooming" in step:
+                    grooming = step[step_index]["grooming"]
+                    if grooming.value == Redis.closeToken.value:
+                        self.remove_token(token=self.tokens[0])
+                        # TODO: copy redis data to postgres and delete data from redis
+
+                # TODO: add exiting way of safely ending the program
 
 
     def new_token_suscription(self, msg: str) -> bool:
         if "initialBuy" in msg and int(msg["initialBuy"]) > self.min_initial_buy:
             # Listening to a predefined amount of tokens
-            if len(self.tokens) < self.token_target_amount:
+            if len(self.tokens) < self.tokens_to_be_traded:
                 print(
                     "New token subscription. Symbol: {}. mint: {}. tarder: {}. Initial buy: {}".format(
                         msg["symbol"],
@@ -248,10 +324,10 @@ class Pump:
                 # self.marketMaking(token=msg["mint"])
 
         # TODO: relase tokens to snipers with redis recods. At this moment we're listening to one token only
-        return len(self.tokens) == self.token_target_amount
+        return len(self.tokens) == self.tokens_to_be_traded
 
 
-    def token_trade_suscription(self, msg: str) -> bool:
+    def token_copytrade_suscription(self, msg: str) -> bool:
         # TODO: remove this temporal validation for testing
         # if not self.traders and "txType" in msg:
         #     if TxType.buy.value == msg["txType"]:
@@ -260,7 +336,7 @@ class Pump:
         if "traderPublicKey" in msg and msg["traderPublicKey"] in self.traders:
             if TxType.buy.value == msg["txType"]:
                 print("Starting pumping bot. Listening to trader: {} - Buy: {}. MarketCap: {}".format(
-                        msg["traderPublicKey"][:5],
+                        msg["traderPublicKey"][:6],
                         msg["tokenAmount"],
                         msg["marketCapSol"]
                     )
@@ -276,6 +352,10 @@ class Pump:
                 return True
 
         return False
+
+    # TODO: implement criteria validation an required functions from lib.utils
+    def validate_criteria(msg: Dict, criteria: Dict) -> bool:
+        pass
 
 
     def trade(self, txtype: TxType, token: str, keypair: Keypair, amount: float = None) -> str:
@@ -315,7 +395,7 @@ class Pump:
         response = None
         retries = 0
         while True:
-            if retries == appconfig.TRADING_RETRIES:
+            if retries == appconfig.TRADING_RETRIES and txtype.value == TxType.sell.value:
                 # TODO: send a telegram message notifying that a manual sell must be done
                 print("Trade->{} Error: Max retries reached. Exiting".format(txtype.value))
                 break

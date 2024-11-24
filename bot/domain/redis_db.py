@@ -32,6 +32,11 @@ class RedisDB:
         self.pubsub = self.client.pubsub()
         self.pubsub.psubscribe({"__keyspace@0__:*"})
 
+    def stop(self):
+        print("Unsubscribing and cleaning up...")
+        self.pubsub.punsubscribe()
+        self.pubsub.close()
+
     def index_exists(self, index_name):
         indexes = self.client.execute_command("FT._LIST")
         return index_name in indexes
@@ -59,10 +64,14 @@ class RedisDB:
         keys = self.client.scan_iter(match=pattern)
         return keys
     
-    def get_fresh_tokens(self, trader=Trader) -> List[Dict]:
+    def get_fresh_tokens(self, trader=Trader, mint_address: str = None) -> List[Dict]:
         tokens = []
+        token_keys = []
         # Search for all tokens where is_traded = False
-        token_keys = self.get_token_keys()
+        if mint_address:
+            token_keys = [mint_address]
+        else:
+            token_keys = self.get_token_keys()
 
         # query = Query('@is_traded:[0 0]').paging(0, 1000)
         # results = self.search_client.search(query)
@@ -72,10 +81,10 @@ class RedisDB:
                 continue
 
             # Extract and validate fields
-            is_traded = data.get("is_traded") == 0
+            is_traded = data.get("is_traded", False)
             trader_match = data.get("trader", "unknown") == trader.value
 
-            if is_traded and trader_match:
+            if not is_traded and trader_match:
                 token = {
                     "key": key,
                     "mint": key.replace("token:", ""),
@@ -93,10 +102,12 @@ class RedisDB:
     def update_token(
             self,
             token: Dict,
-            txn: str,
-            action: TxType,
-            amount: float,
-            trader: Trader
+            txn: str = None,
+            action: TxType = None,
+            amount: float = None,
+            trader: Trader = None,
+            checked_as_being_traded: bool = False,
+            balance: int = None
         ) -> Dict:
 
         key = token["key"]
@@ -107,13 +118,21 @@ class RedisDB:
 
         # Prepare the data to update
         trading_time = datetime.now().timestamp()
-        new_data = {
-            "{}_time".format(action.value): trading_time,   # New trading time as timestamp
-            "{}_txn".format(action.value): txn,             # New transaction string
-            "is_traded": 1,
-            "{}_amount".format(action.value): amount,       # Specifying the amount of buy/sell action
-            "trader": trader.value
-        }
+        new_data = {}
+        if checked_as_being_traded:
+            new_data = {
+                "checked_time": trading_time,
+                "is_checked": True,
+                "initial_balance": balance
+            }
+        else:
+            new_data = {
+                "{}_time".format(action.value): trading_time,   # New trading time as timestamp
+                "{}_txn".format(action.value): txn,             # New transaction string
+                "is_traded": True,
+                "{}_amount".format(action.value): amount,       # Specifying the amount of buy/sell action
+                "trader": trader.value
+            }
 
         data.update(new_data)
 

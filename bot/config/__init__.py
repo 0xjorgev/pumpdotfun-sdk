@@ -26,6 +26,8 @@ class AuthConfig:
     PUMPFUN_WEBSOCKET = "wss://pumpportal.fun/api/data"
     MARKETMAKING_SOL_BUY_AMOUNT = 0.03
     TRADING_DEFAULT_AMOUNT = 0.50
+    TRADING_TOKENS_AT_THE_SAME_TIME = 1
+    TRADING_EXPECTED_GAIN_IN_PERCENTAGE = 0.5
     TRADING_RETRIES = 3
     #DB
     REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")

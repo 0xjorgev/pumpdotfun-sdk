@@ -1,10 +1,13 @@
 import asyncio
 import logging
 from module.pump import Pump, TradeRoadmap
-
+from lib.utils import Trader
 
 async def main():
-    pump = Pump(sniper_name="sniper1")
+    pump = Pump(
+        executor_name="sniper1",
+        trader_type=Trader.sniper
+    )
 
     tasks = [
         pump.subscribe(steps=TradeRoadmap.sniper_1)
