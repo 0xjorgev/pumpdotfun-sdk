@@ -81,16 +81,18 @@ class RedisDB:
                 continue
 
             # Extract and validate fields
-            is_traded = data.get("is_traded", False)
+            is_checked = data.get("is_checked", False)
+            #is_traded = data.get("is_traded", False)
             trader_match = data.get("trader", "unknown") == trader.value
 
-            if not is_traded and trader_match:
+            if not is_checked and trader_match:
                 token = {
                     "key": key,
                     "mint": key.replace("token:", ""),
                     "amount": float(data["amount"]),
                     "trader": data["trader"],
-                    "is_traded": True if int(data["is_traded"]) == 1 else False,
+                    # "is_traded": True if int(data["is_traded"]) == 1 else False,
+                    "is_checked": is_checked,
                     "timestamp": datetime.fromtimestamp(int(data["timestamp"])),
                     "name": data["name"],
                     "ticker": data["ticker"]
@@ -107,7 +109,8 @@ class RedisDB:
             amount: float = None,
             trader: Trader = None,
             checked_as_being_traded: bool = False,
-            balance: int = None
+            balance: float = None,
+            token_balance: float = None,
         ) -> Dict:
 
         key = token["key"]
@@ -123,15 +126,16 @@ class RedisDB:
             new_data = {
                 "checked_time": trading_time,
                 "is_checked": True,
-                "initial_balance": balance
             }
         else:
             new_data = {
-                "{}_time".format(action.value): trading_time,   # New trading time as timestamp
-                "{}_txn".format(action.value): txn,             # New transaction string
+                "{}_time".format(action.value): trading_time,           # New trading time as timestamp
+                "{}_txn".format(action.value): txn,                     # New transaction string
                 "is_traded": True,
-                "{}_amount".format(action.value): amount,       # Specifying the amount of buy/sell action
-                "trader": trader.value
+                "{}_amount".format(action.value): amount,               # Specifying the amount of buy/sell action
+                "trader": trader.value,
+                "{}_balance".format(action.value): balance,             # Wallet balance before buy / after sell
+                "{}_token_balance".format(action.value): token_balance  # Token balance after buy
             }
 
         data.update(new_data)
@@ -151,7 +155,7 @@ def test_create_record(mint_address: str):
         "name": "Some Day",
         "ticker": "SMD",
         "amount": 15.500,
-        "is_traded": 1 if is_traded else 0,
+        "is_traded": is_traded,
         "timestamp": datetime.now().timestamp(),
         "trader": Trader.sniper.value
     }
