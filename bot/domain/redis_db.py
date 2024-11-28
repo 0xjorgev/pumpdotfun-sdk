@@ -108,7 +108,8 @@ class RedisDB:
             action: TxType = None,
             amount: float = None,
             trader: Trader = None,
-            checked_as_being_traded: bool = False,
+            is_checked: bool = True,
+            is_closed: bool = False,
             balance: float = None,
             token_balance: float = None,
         ) -> Dict:
@@ -122,10 +123,13 @@ class RedisDB:
         # Prepare the data to update
         trading_time = datetime.now().timestamp()
         new_data = {}
-        if checked_as_being_traded:
+        if not is_checked:
             new_data = {
                 "checked_time": trading_time,
                 "is_checked": True,
+                "is_traded": False,
+                "is_closed": False,
+                "trades": []                    # We'll keep track of every buy/sell during our trade
             }
         else:
             new_data = {
@@ -135,7 +139,8 @@ class RedisDB:
                 "{}_amount".format(action.value): amount,               # Specifying the amount of buy/sell action
                 "trader": trader.value,
                 "{}_balance".format(action.value): balance,             # Wallet balance before buy / after sell
-                "{}_token_balance".format(action.value): token_balance  # Token balance after buy
+                "{}_token_balance".format(action.value): token_balance,  # Token balance after buy
+                "is_closed": is_closed
             }
 
         data.update(new_data)

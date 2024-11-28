@@ -7,7 +7,8 @@ import websockets
 import ssl
 import certifi
 
-from bot.lib.utils import (
+from bot.libs.criterias import trading_analytics
+from bot.libs.utils import (
     get_solana_balance,
     get_own_token_balance,
     Trader,
@@ -16,6 +17,7 @@ from bot.lib.utils import (
 from config import appconfig
 from domain.redis_db import RedisDB
 
+from datetime import datetime
 from enum import Enum
 from solders.transaction import VersionedTransaction
 from solders.keypair import Keypair
@@ -23,7 +25,7 @@ from solders.commitment_config import CommitmentLevel
 from solders.rpc.requests import SendVersionedTransaction
 from solders.rpc.config import RpcSendTransactionConfig
 
-from typing import Dict
+from typing import Dict, List
 
 
 class Suscription(Enum):
@@ -72,11 +74,13 @@ class TradeRoadmap:
             "name": "TOKEN_SUBSCRIPTION",
             "subscription": Suscription.subscribeTokenTrade,
             "criteria": {
+                "max_consecutive_buys": 2,
+                "max_consecutive_sells": 1,
                 "max_seconds_between_buys": 3,
                 "developer_has_sold": True,
-                "same_balance": True,
+                "max_sols_in_token_after_buying_in_percentage": 100,
                 "market_inactivity": 10,
-                "max_seconds_in_market": 30
+                "max_seconds_in_market": 60
             }
         },
         {"step": 3, "name": "TRADE_TOKEN", "action": TxType.sell},
@@ -100,7 +104,7 @@ class Pump:
     ) -> None:
         self.uri_data = appconfig.PUMPFUN_WEBSOCKET
         self.accounts = []
-        self.tokens = []
+        self.tokens = {}
         self.traders = []
         self.executor_name = executor_name
         self.trader_type = trader_type
@@ -112,7 +116,6 @@ class Pump:
         self.keypair = Keypair.from_base58_string(appconfig.PRIVKEY)
         self.ssl_context = ssl.create_default_context(cafile=certifi.where())
         self.balance = self.get_balance(public_key=self.keypair.pubkey())
-        self.msgs = []
 
 
     def get_balance(self, public_key):
@@ -136,20 +139,14 @@ class Pump:
 
     # Tokens to pay attention to
     def add_token(self, token: Dict):
-        self.tokens.append(token)
+        self.tokens[token["mint"]] = token
 
     def remove_token(self, token: str):
-        if token in self.tokens:
-            self.tokens.pop(self.accounts.index(token))
+        if token["mint"] in self.tokens:
+            del self.tokens["miunt"]
 
     def clear_tokens(self):
         self.tokens = []
-
-    def remove_token(self, token: str):
-        if token in self.tokens:
-            self.tokens.pop(
-                self.tokens.index(token)
-            )
 
     # Traders to follow for starting and stoping pumps
     def add_trader(self, trader: str):
@@ -220,19 +217,20 @@ class Pump:
                                 # - move to next step and update the token as being checked
                                 token = redisdb.update_token(
                                     token=token,
-                                    checked_as_being_traded=True
+                                    is_checked=False
                                 )
                                 self.add_token(token=token)
 
                                 # - safely exit this listening
                                 redisdb.pubsub.close()
+
+                                print("Token {} assigned to {} to trade {}".format(
+                                    token["mint"],
+                                    self.executor_name,
+                                    self.trading_amount
+                                ))
                                 break
-                        
-                        print("Token {} assigned to {} to trade {}".format(
-                            self.tokens[0]["mint"],
-                            self.executor_name,
-                            self.trading_amount
-                        ))
+
                         step_index += 1
 
                         continue
@@ -243,76 +241,77 @@ class Pump:
                 
                 if "action" in step:
                     if step["action"] == TxType.buy:
-                        token = self.tokens[0]
-                        txn = self.trade(
-                            txtype=TxType.buy,
-                            token=token["mint"],
-                            keypair=self.keypair,
-                            amount=self.trading_amount
-                        )
-                        # Get the token balance in wallet
-                        token_balance = self.get_tkn_balance(
-                            wallet_pubkey=self.keypair.pubkey(),
-                            token_account=token["mint"]
-                        )
+                        for mint_address, token_data in self.tokens.items():
+                            txn = self.trade(
+                                txtype=TxType.buy,
+                                token=mint_address,
+                                keypair=self.keypair,
+                                amount=self.trading_amount
+                            )
+                            # Get the token balance in wallet
+                            token_balance = self.get_tkn_balance(
+                                wallet_pubkey=self.keypair.pubkey(),
+                                token_account=mint_address
+                            )
 
-                        # Update token record in redis
-                        token_updated = redisdb.update_token(
-                            token=token,
-                            txn=txn,
-                            action=TxType.buy,
-                            amount=self.trading_amount,
-                            trader=self.trader_type,
-                            checked_as_being_traded=False,
-                            balance=self.balance,
-                            token_balance=token_balance
-                        )
-                        # Update token
-                        self.remove_token(token=token)
-                        self.add_token(token=token_updated)
+                            self.tokens[mint_address]["token_balance"] = token_balance
 
-                        step_index += 1
+                            # Update token record in redis
+                            token_updated = redisdb.update_token(
+                                token=token_data,
+                                txn=txn,
+                                action=TxType.buy,
+                                amount=self.trading_amount,
+                                trader=self.trader_type,
+                                balance=self.balance,
+                                token_balance=token_balance
+                            )
+                            # Update token
+                            self.remove_token(token=token)
+                            self.add_token(token=token_updated)
+
+                            step_index += 1
                         continue
 
                     if step["action"] == TxType.sell:
-                        token = self.tokens[0]
-                        txn = self.trade(
-                            txtype=TxType.buy,
-                            token=token["mint"],
-                            keypair=self.keypair,
-                            amount=None             # Amount will be handled buy trade function
-                        )
-                        # Update wallet balance after selling
-                        self.get_balance(public_key=self.keypair.pubkey())
+                        for mint_address, token_data in self.tokens.items():
+                            txn = self.trade(
+                                txtype=TxType.buy,
+                                token=mint_address,
+                                keypair=self.keypair,
+                                amount=None             # Amount will be handled buy trade function
+                            )
+                            # Update wallet balance after selling
+                            self.get_balance(public_key=self.keypair.pubkey())
 
-                        # Get the token balance in wallet
-                        # Note: although we're selling 100% of tokens we might sell a % of tokens
-                        #       in the future and that's way we get the token balance when selling
-                        token_balance = self.get_tkn_balance(
-                            wallet_pubkey=self.keypair.pubkey(),
-                            token_account=token["mint"]
-                        )
-                        # Update token record in redis
-                        token_updated = redisdb.update_token(
-                            token=token,
-                            txn=txn,
-                            action=TxType.sell,
-                            amount=self.trading_amount,
-                            trader=self.trader_type,
-                            checked_as_being_traded=False,
-                            balance=self.balance,
-                            token_balance=token_balance
-                        )
+                            # Get the token balance in wallet
+                            # Note: although we're selling 100% of tokens we might sell a % of tokens
+                            #       in the future and that's way we get the token balance when selling
+                            token_balance = self.get_tkn_balance(
+                                wallet_pubkey=self.keypair.pubkey(),
+                                token_account=mint_address
+                            )
+                            # Update token record in redis
+                            token_updated = redisdb.update_token(
+                                token=token_data,
+                                txn=txn,
+                                action=TxType.sell,
+                                amount=self.trading_amount,
+                                trader=self.trader_type,
+                                is_closed=True,
+                                balance=self.balance,
+                                token_balance=token_balance
+                            )
 
-                        # Update token
-                        self.remove_token(token=token)
-                        self.add_token(token=token_updated)
+                            # Update token
+                            self.remove_token(token=token)
+                            self.add_token(token=token_updated)
 
-                        step_index += 1
+                            step_index += 1
                         continue
 
                 if "subscription" in step:
-                    suscription = steps[step_index]["subscription"]
+                    suscription = step["subscription"]
 
                     payload = {
                         "method": suscription.value,
@@ -322,14 +321,24 @@ class Pump:
                         payload["keys"] = self.accounts
 
                     if suscription.value == Suscription.subscribeTokenTrade.value:
-                        payload["keys"] = [token["mint"] for token in self.tokens]
+                        payload["keys"] = [mint for mint, _ in self.tokens.items() if not self.tokens[mint]["is_traded"]]
 
                     if suscription.value == Suscription.unsubscribeTokenTrade.value:
-                        payload["keys"] = [token["mint"] for token in self.tokens]
+                        payload["keys"] = [mint for mint, _ in self.tokens.items() if self.tokens[mint]["is_closed"]]
 
                     await websocket.send(json.dumps(payload))
 
-                    # MAIN WEBSOCKET THREAT
+                    #####################
+                    # ADD HERE THE BUYING TRADEs in separate threads and fix the step so Buy and Sell are inside subscription
+                    # NOTE: test buy and sell in real before having them in threads
+                    #####################
+                    for mint, token_data in self.tokens.items():
+                         if not self.tokens[mint]["is_traded"] and \
+                            self.tokens[mint]["is_checked"] and \
+                            not self.tokens[mint]["is_closed"]:
+                            pass
+
+                    # MAIN WEBSOCKET THREAD
                     async for message in websocket:
                         msg = json.loads(message)
                         move_to_next_step = False
@@ -343,11 +352,32 @@ class Pump:
                             move_to_next_step = self.new_token_suscription(msg=msg)
 
                         if suscription.value == Suscription.subscribeTokenTrade.value:
-                            self.msgs.append(msg)
-                            move_to_next_step = self.validate_criteria(
+                            # Getting the mint address we'll work with
+                            mint = msg["mint"]
+
+                            # We'll not pay attention to closed token trades
+                            if self.tokens[mint]["is_closed"]:
+                                continue
+
+                            if "trades" not in self.tokens[mint]:
+                                self.tokens[mint]["trades"] = []
+
+                            # Doing some analytics like how many continuous buys have happend, etc
+                            new_msg = trading_analytics(
                                 msg=msg,
-                                criteria=steps[step_index]["criteria"]
+                                previous_trades=self.tokens[mint]["trades"],
+                                amount_traded=self.trading_amount,
+                                pubkey=self.keypair.pubkey()
                             )
+                            # Including last message with new metadata into trades list
+                            self.tokens[mint]["trades"].append(new_msg)
+ 
+                            move_to_next_step, criteria = self.validate_criteria(
+                                trades=self.tokens[mint]["trades"],
+                                criteria=step["criteria"]
+                            )
+                            # Including exit criteria in token for further analytics
+                            self.tokens[0]["exit_criteria"] = criteria
 
                         # Moving to the next step
                         if move_to_next_step:
@@ -357,12 +387,12 @@ class Pump:
 
 
                 if "grooming" in step:
-                    grooming = step[step_index]["grooming"]
+                    grooming = step["grooming"]
                     if grooming.value == Redis.closeToken.value:
                         self.remove_token(token=self.tokens[0])
                         # TODO: copy redis data to postgres and delete data from redis
 
-                # TODO: add exiting way of safely ending the program
+                # TODO: add a saftley exit way of ending the program
 
 
     def new_token_suscription(self, msg: str) -> bool:
@@ -413,8 +443,20 @@ class Pump:
         return False
 
     # TODO: implement criteria validation an required functions from lib.utils
-    def validate_criteria(self, msg: Dict, criteria: Dict) -> bool:
-        pass
+    def validate_criteria(self, trades: List[Dict], criteria: Dict) -> bool:
+        is_valid = False
+        exit_criteria = None
+        for key, value in criteria.items():
+            {
+                "max_seconds_between_buys": 3,
+                "developer_has_sold": True,
+                "same_balance": True,
+                "market_inactivity": 10,
+                "max_seconds_in_market": 30
+            }
+
+        return is_valid, exit_criteria
+        
 
 
     def trade(self, txtype: TxType, token: str, keypair: Keypair, amount: float = None) -> str:
@@ -454,11 +496,10 @@ class Pump:
         response = None
         retries = 0
         while True:
-
-            print("trade -> TEST MODE: returning dummy transaction")
-            txSignature = "txn_dummy_{}".format(txtype.value)
-            break
-
+            if appconfig.ENVIRONMENT == "DUMM":
+                print("trade -> DUMMY MODE: returning dummy transaction")
+                txSignature = "txn_dummy_{}".format(txtype.value)
+                break
 
             if retries == appconfig.TRADING_RETRIES and txtype.value == TxType.sell.value:
                 # TODO: send a telegram message notifying that a manual sell must be done
