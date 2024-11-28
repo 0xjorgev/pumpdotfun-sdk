@@ -58,7 +58,14 @@ class TradeRoadmap:
     ]
     sniper_copytrade = [ # TODO: to be developed
         {"step": 0, "name": "WAIT_FOR_TRADERS", "redis": Redis.readTraders},
-        {"step": 1, "name": "TRADER_SUBSCRIPTION", "subscription": Suscription.subscribeNewToken},
+        {
+            "step": 1,
+            "name": "TRADER_SUBSCRIPTION",
+            "subscription": Suscription.subscribeNewToken,
+            "criteria": {
+                "discard_lower_than_sols": 1.00,
+            }
+        },
         {"step": 2, "name": "TRADE_TOKEN", "action": TxType.buy},
         {
             "step": 3,
@@ -77,7 +84,7 @@ class TradeRoadmap:
     ]
     sniper_1 = [
         {"step": 0, "name": "WAIT_FOR_TOKEN", "redis": Redis.readToken},
-        {"step": 1, "name": "TRADE_TOKEN", "action": TxType.buy},
+        {"step": 1, "name": "TRADE_TOKEN_BUY", "action": TxType.buy},
         {
             "step": 2,
             "name": "TOKEN_SUBSCRIPTION",
@@ -88,13 +95,13 @@ class TradeRoadmap:
                 "max_seconds_between_buys": 3,
                 "developer_has_sold": True,
                 "max_sols_in_token_after_buying_in_percentage": 100,
-                "market_inactivity": 10,
-                "max_seconds_in_market": 60
+                "market_inactivity": 5,
+                "max_seconds_in_market": 10
             }
         },
-        {"step": 3, "name": "TRADE_TOKEN", "action": TxType.sell},
+        {"step": 3, "name": "TRADE_TOKEN_SELL", "action": TxType.sell},
         {"step": 4, "name": "UNSUBSCRIBE_TO_TOKEN", "subscription": Suscription.unsubscribeTokenTrade},
-        {"step": 5, "name": "CLOSE_TOKEN", "grooming": Redis.closeToken},
+        {"step": 5, "name": "CLOSE_TOKEN", "redis": Redis.closeToken},
     ]
 
 
@@ -147,12 +154,24 @@ class Pump:
             self.accounts.pop(self.accounts.index(account))
 
     # Tokens to pay attention to
-    def add_token(self, token: Dict):
-        self.tokens[token["mint"]] = token
+    def add_update_token(self, token: Dict):
+        """
+        Updates the token in the dictionary based on the provided mint key.
+        If the mint key does not exist, it will add a new token.
 
-    def remove_token(self, token: str):
+        Args:
+            mint (str): The mint attribute of the token to be updated.
+            updated_data (Dict): The data to update the token with.
+        """
         if token["mint"] in self.tokens:
-            del self.tokens["miunt"]
+            # Update only the provided fields
+            self.tokens[token["mint"]].update(token)
+        else:
+            # If the mint doesn't exist, treat it as a new token
+            self.tokens[token["mint"]] = token
+
+    def remove_token(self, token: Dict):
+        del self.tokens[token["mint"]]
 
     def clear_tokens(self):
         self.tokens = []
@@ -190,7 +209,9 @@ class Pump:
                 # REDIS DB HANDLING
                 if "redis" in step:
                     # Listen to redis change
+                    redisdb.subscribe()
                     if step["redis"] == Redis.readToken:
+                        # TODO: Solve BUG: redis listener is not working at the second time
                         for message in redisdb.pubsub.listen():
                             if message["type"] == "psubscribe":
                                 print("Subscribed to redis")
@@ -228,10 +249,10 @@ class Pump:
                                     token=token,
                                     is_checked=False
                                 )
-                                self.add_token(token=token)
+                                self.add_update_token(token=token)
 
-                                # - safely exit this listening
-                                redisdb.pubsub.close()
+                                # Safely unsubscribing current channellistening
+                                redisdb.unsubscribe()
 
                                 print("Token {} assigned to {} to trade {}".format(
                                     token["mint"],
@@ -244,7 +265,8 @@ class Pump:
 
                         continue
                     if step["redis"] == Redis.closeToken:
-                        # Save in redis the amount of buy and sell with timestamp. Calculate P&L
+                        # TODO: mark token in redis as closed
+                        self.remove_token(token=self.tokens[mint])
                         step_index += 1
                         continue
                 
@@ -276,8 +298,7 @@ class Pump:
                                 token_balance=token_balance
                             )
                             # Update token
-                            self.remove_token(token=token)
-                            self.add_token(token=token_updated)
+                            self.add_update_token(token=token_updated)
 
                             step_index += 1
                         continue
@@ -309,12 +330,12 @@ class Pump:
                                 trader=self.trader_type,
                                 is_closed=True,
                                 balance=self.balance,
-                                token_balance=token_balance
+                                token_balance=token_balance,
+                                trades=self.tokens[mint]["trades"]
                             )
 
                             # Update token
-                            self.remove_token(token=token)
-                            self.add_token(token=token_updated)
+                            self.add_update_token(token=token_updated)
 
                             step_index += 1
                         continue
@@ -330,7 +351,7 @@ class Pump:
                         payload["keys"] = self.accounts
 
                     if suscription.value == Suscription.subscribeTokenTrade.value:
-                        payload["keys"] = [mint for mint, _ in self.tokens.items() if not self.tokens[mint]["is_traded"]]
+                        payload["keys"] = [mint for mint, _ in self.tokens.items() if self.tokens[mint]["is_checked"] and self.tokens[mint]["is_traded"]]
 
                     if suscription.value == Suscription.unsubscribeTokenTrade.value:
                         payload["keys"] = [mint for mint, _ in self.tokens.items() if self.tokens[mint]["is_closed"]]
@@ -355,7 +376,10 @@ class Pump:
                         # This is the first message we get when we connect
                         if "message" in msg:
                             print(msg["message"])
-                            continue
+                            if suscription.value == Suscription.unsubscribeTokenTrade.value and "unsubscribed" in msg["message"].lower():
+                                move_to_next_step = True
+                            else:
+                                continue
 
                         if suscription.value == Suscription.subscribeNewToken.value:
                             move_to_next_step = self.new_token_suscription(msg=msg)
@@ -386,7 +410,7 @@ class Pump:
                                 criteria=step["criteria"]
                             )
                             # Including exit criteria in token for further analytics
-                            self.tokens[0]["exit_criteria"] = criteria
+                            self.tokens[mint]["exit_criteria"] = criteria
 
                         # Moving to the next step
                         if move_to_next_step:
@@ -395,13 +419,7 @@ class Pump:
                             break
 
 
-                if "grooming" in step:
-                    grooming = step["grooming"]
-                    if grooming.value == Redis.closeToken.value:
-                        self.remove_token(token=self.tokens[0])
-                        # TODO: copy redis data to postgres and delete data from redis
-
-                # TODO: add a saftley exit way of ending the program
+                # TODO: add a safely exit way of ending the program
 
 
     def new_token_suscription(self, msg: str) -> bool:
@@ -417,7 +435,7 @@ class Pump:
                     )
                 )
                 self.clear_tokens()  # TODO: Change this when more than one token will be checked
-                self.add_token(token=msg["mint"])
+                self.add_update_token(token=msg["mint"])
                 # testing
                 # self.marketMaking(token=msg["mint"])
 
@@ -518,7 +536,7 @@ class Pump:
         response = None
         retries = 0
         while True:
-            if appconfig.ENVIRONMENT == "DUMM":
+            if appconfig.ENVIRONMENT == "DUMMY":
                 print("trade -> DUMMY MODE: returning dummy transaction")
                 txSignature = "txn_dummy_{}".format(txtype.value)
                 break

@@ -1,3 +1,4 @@
+import json
 import redis
 from redisearch import Client, NumericField
 from datetime import datetime
@@ -30,7 +31,12 @@ class RedisDB:
         self.create_index()
         # Event listener
         self.pubsub = self.client.pubsub()
+    
+    def subscribe(self):
         self.pubsub.psubscribe({"__keyspace@0__:*"})
+    
+    def unsubscribe(self):
+        self.pubsub.unsubscribe({"__keyspace@0__:*"})
 
     def stop(self):
         print("Unsubscribing and cleaning up...")
@@ -93,7 +99,8 @@ class RedisDB:
                     "trader": data["trader"],
                     # "is_traded": True if int(data["is_traded"]) == 1 else False,
                     "is_checked": is_checked,
-                    "timestamp": datetime.fromtimestamp(int(data["timestamp"])),
+                    #### "timestamp": datetime.fromtimestamp(float(data["timestamp"])),
+                    "timestamp": data["timestamp"],
                     "name": data["name"],
                     "ticker": data["ticker"]
                 }
@@ -112,13 +119,14 @@ class RedisDB:
             is_closed: bool = False,
             balance: float = None,
             token_balance: float = None,
+            trades: List[Dict] = []
         ) -> Dict:
 
         key = token["key"]
         data = token.copy()
         data.pop("key")
         data.pop("mint")
-        data["timestamp"] = data["timestamp"].timestamp()
+        #data["timestamp"] = data["timestamp"].isoformat()
 
         # Prepare the data to update
         trading_time = datetime.now().timestamp()
@@ -132,6 +140,9 @@ class RedisDB:
                 "trades": []                    # We'll keep track of every buy/sell during our trade
             }
         else:
+            for trade in trades:
+                trade["timestamp"] = trade["timestamp"]
+
             new_data = {
                 "{}_time".format(action.value): trading_time,           # New trading time as timestamp
                 "{}_txn".format(action.value): txn,                     # New transaction string
@@ -140,7 +151,8 @@ class RedisDB:
                 "trader": trader.value,
                 "{}_balance".format(action.value): balance,             # Wallet balance before buy / after sell
                 "{}_token_balance".format(action.value): token_balance,  # Token balance after buy
-                "is_closed": is_closed
+                "is_closed": is_closed,
+                "trades": trades
             }
 
         data.update(new_data)
@@ -171,7 +183,40 @@ def test_update_record():
     redis_object = RedisDB()
     tokens = redis_object.get_fresh_tokens(trader=Trader.sniper)
     
-    print(tokens)
+    trades = [
+        {
+            "signature":"XGAnLe4EKCx4NNHv7soDimYZifwRndEGq1myrMDZR6DSRa6FgvcsMbpEz7XJrvRHxH6GcwPTr1oKt9jNWj5T4Uh",
+            "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+            "traderPublicKey":"4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
+            "txType":"buy",
+            "tokenAmount":30582206.734745,
+            "newTokenBalance":30582206.734745,
+            "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+            "vTokensInBondingCurve":977513247.598136,
+            "vSolInBondingCurve":32.93049999996889,
+            "marketCapSol":33.68803449046135,
+            "timestamp":1732830811.317805,
+            "consecutive_buys":1,
+            "consecutive_sells":0,
+            "vSolInBondingCurve_Base":32.480499999968885,
+            "seconds_between_buys":0,
+            "seconds_between_sells":0,
+            "market_inactivity":0,
+            "max_seconds_in_market":0,
+            "max_consecutive_buys":[
+                {
+                    "quantity":4,
+                    "sols":1.4991999999351904
+                },
+                {
+                    "quantity":1,
+                    "sols":0.018796194062183247
+                }
+            ],
+            "developer_has_sold":False,
+            "sols_in_token_after_buying":0.45000000000000284
+        }
+    ]
 
     for token in tokens:
         data = redis_object.update_token(
@@ -179,13 +224,21 @@ def test_update_record():
             txn="txn1",
             action=TxType.buy,
             amount=15.500,
-            trader=Trader.sniper
+            trader=Trader.sniper,
+            is_checked=True
         )
         data = redis_object.update_token(
             token=data,
             txn="txn2",
             action=TxType.sell,
             amount=45.500,
-            trader=Trader.sniper
+            trader=Trader.sniper,
+
+            is_closed = False,
+            balance = 21.500,
+            token_balance = 1234567890,
+            trades = trades
         )
         print(data)
+
+#test_update_record()

@@ -29,7 +29,7 @@ def trading_analytics(
     """
 
     new_msg = msg.copy()
-    new_msg["timestamp"] = datetime.now()       # Including timestamp in incomming message
+    new_msg["timestamp"] = datetime.now().timestamp()       # Including timestamp in incomming message
 
     # Default values that might change
     new_msg["consecutive_buys"] = 1 if msg["txType"].lower() == TxType.buy.value else 0
@@ -62,6 +62,10 @@ def trading_analytics(
 
     else:
         last_msg = previous_trades[-1]
+
+        last_msg_timestamp = datetime.fromtimestamp(last_msg["timestamp"])
+        first_trade_timestamp = datetime.fromtimestamp(previous_trades[0]["timestamp"])
+
         # We always keep track of the consecutive buys
         new_msg["max_consecutive_buys"] = last_msg["max_consecutive_buys"]
 
@@ -71,7 +75,7 @@ def trading_analytics(
 
             if last_msg["txType"].lower() == TxType.buy.value:
                 new_msg["consecutive_buys"] = 1 + last_msg["consecutive_buys"]
-                new_msg["seconds_between_buys"] = (datetime.now() - last_msg["timestamp"]).total_seconds()
+                new_msg["seconds_between_buys"] = (datetime.now() - last_msg_timestamp).total_seconds()
                 # Updating the last record
                 new_msg["max_consecutive_buys"][-1]["quantity"] = 1 + last_msg["consecutive_buys"]
                 new_msg["max_consecutive_buys"][-1]["sols"] += new_msg["vSolInBondingCurve"] - last_msg["vSolInBondingCurve"]
@@ -92,16 +96,16 @@ def trading_analytics(
 
             if last_msg["txType"].lower() == TxType.sell.value:
                 new_msg["consecutive_sells"] = 1 + last_msg["consecutive_sells"]
-                new_msg["seconds_between_sells"] = (datetime.now() - last_msg["timestamp"]).total_seconds()
+                new_msg["seconds_between_sells"] = (datetime.now() - last_msg_timestamp).total_seconds()
             else:
                 new_msg["consecutive_sells"] = 1
                 new_msg["seconds_between_sells"] = 0
 
-        new_msg["market_inactivity"] = (datetime.now() - last_msg["timestamp"]).total_seconds()
-        new_msg["max_seconds_in_market"] = (datetime.now() - previous_trades[0]["timestamp"]).total_seconds()
+        new_msg["market_inactivity"] = (datetime.now() - last_msg_timestamp).total_seconds()
+        new_msg["max_seconds_in_market"] = (datetime.now() - first_trade_timestamp).total_seconds()
 
         if msg["txType"].lower() == TxType.buy.value:
-            new_msg["seconds_between_buys"] = (datetime.now() - last_msg["timestamp"]).total_seconds()
+            new_msg["seconds_between_buys"] = (datetime.now() - last_msg_timestamp).total_seconds()
 
         # We'll keep track of the Solanas in Bounding courve since the first recorded trade
         new_msg["vSolInBondingCurve_Base"] = last_msg["vSolInBondingCurve_Base"]
@@ -127,7 +131,7 @@ def max_consecutive_buys(buys: int, msg: dict) -> bool:
     Returns:
         bool: True if the condition is met, otherwise False.
     """
-    return buys >= msg["max_consecutive_buys"]
+    return buys >= msg["consecutive_buys"]
 
 
 def max_consecutive_sells(sells: int, msg: dict) -> bool:
@@ -141,7 +145,7 @@ def max_consecutive_sells(sells: int, msg: dict) -> bool:
     Returns:
         bool: True if the condition is met, otherwise False.
     """
-    return sells >= msg["max_consecutive_sells"]
+    return sells >= msg["consecutive_sells"]
 
 
 def max_seconds_between_buys(seconds: int, msg: dict) -> bool:
@@ -372,3 +376,5 @@ def test():
         tokens[mint]["trades"].append(new_msg)
 
     print(tokens[mint]["trades"])
+
+#test()

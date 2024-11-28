@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from module.pump import Pump, TradeRoadmap
-from lib.utils import Trader
+from bot.libs.utils import Trader
 
 async def main():
     pump = Pump(
