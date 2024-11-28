@@ -7,17 +7,26 @@ import websockets
 import ssl
 import certifi
 
-from bot.libs.criterias import trading_analytics
+from bot.libs.criterias import (
+    trading_analytics,
+    max_consecutive_buys,
+    max_consecutive_sells,
+    max_seconds_between_buys,
+    max_seconds_in_market,
+    max_sols_in_token_after_buying_in_percentage,
+    developer_has_sold,
+    market_inactivity
+)
+from bot.libs import criterias as criteria_functions
 from bot.libs.utils import (
     get_solana_balance,
     get_own_token_balance,
     Trader,
     TxType
 )
-from config import appconfig
-from domain.redis_db import RedisDB
+from bot.config import appconfig
+from bot.domain.redis_db import RedisDB
 
-from datetime import datetime
 from enum import Enum
 from solders.transaction import VersionedTransaction
 from solders.keypair import Keypair
@@ -373,7 +382,7 @@ class Pump:
                             self.tokens[mint]["trades"].append(new_msg)
  
                             move_to_next_step, criteria = self.validate_criteria(
-                                trades=self.tokens[mint]["trades"],
+                                msg=new_msg,
                                 criteria=step["criteria"]
                             )
                             # Including exit criteria in token for further analytics
@@ -442,18 +451,31 @@ class Pump:
 
         return False
 
-    # TODO: implement criteria validation an required functions from lib.utils
-    def validate_criteria(self, trades: List[Dict], criteria: Dict) -> bool:
+
+    def validate_criteria(self, msg: Dict, criteria: Dict) -> bool:
+        """
+        This function takes the incomming trading message from Pump.fun previouly
+        trated by trading_analytics function and apply all criteria functions for the
+        current step.
+        :param msg: message from Pump.fun when listening to trading tokens and modified by trading_analytics funciton.
+        :param criteria: list of functions and values for evaluation on exiting or not the trading position.
+        :return: is_valid[True|False] and the function name as an exit_criteria .
+        """
         is_valid = False
         exit_criteria = None
-        for key, value in criteria.items():
-            {
-                "max_seconds_between_buys": 3,
-                "developer_has_sold": True,
-                "same_balance": True,
-                "market_inactivity": 10,
-                "max_seconds_in_market": 30
-            }
+        for function_name, parameter in criteria.items():
+            # Dynamically get the function reference
+            function = getattr(criteria_functions, function_name, None)
+            if callable(function):
+                # Call the function with the parameter and msg
+                is_valid = function(parameter, msg)
+                print(f"Function {function_name} returned: {is_valid}")
+            else:
+                print(f"validate_criteria-> Error: {function_name} not found.")
+            
+            if is_valid:
+                exit_criteria = function_name
+                break
 
         return is_valid, exit_criteria
         
@@ -589,4 +611,170 @@ class Pump:
 
         txn = self.buy(token=token, amount=amount, keypair=keypair)
 
-        
+
+def test():
+    messages = [
+        {
+            "signature":"XGAnLe4EKCx4NNHv7soDimYZifwRndEGq1myrMDZR6DSRa6FgvcsMbpEz7XJrvRHxH6GcwPTr1oKt9jNWj5T4Uh",
+            "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+            "traderPublicKey":"4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
+            "txType":"buy",
+            "tokenAmount":30582206.734745,
+            "newTokenBalance":30582206.734745,
+            "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+            "vTokensInBondingCurve":977513247.598136,
+            "vSolInBondingCurve":32.93049999996889,
+            "marketCapSol":33.68803449046135
+        },
+        {
+            "signature":"5eZ88gyECt27NR47Rpe7yUd8t2FBxanVV5FUFLjUQjax3z4WzvWdbxAxJmMHkAHR6zVsYw9DRXuGFPBKxTVvFFY5",
+            "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+            "traderPublicKey":"4RBnqw6CB9ANn9e16WWamqZNBZDHXwuFVWSjosk43ptC",
+            "txType":"buy",
+            "tokenAmount":14605679.543704,
+            "newTokenBalance":14605679.543704,
+            "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+            "vTokensInBondingCurve":962907568.054432,
+            "vSolInBondingCurve":33.42999999993804,
+            "marketCapSol":34.717766386948036
+        },
+        {
+            "signature":"5DcDFCF1L3A5m86GDSgCtM1vVFqXh9cQh1bf8K2Z8WobiStLUXbyE87wNFdLsEa2Az8xxY5ziC5bwEA9X2j47pkL",
+            "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+            "traderPublicKey":"5gaewKWutRmK5J7iAFLFeEz8aeuhLMGsYwmXnZw8ib9L",
+            "txType":"buy",
+            "tokenAmount":7147473.040359,
+            "newTokenBalance":7147473.040359,
+            "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+            "vTokensInBondingCurve":955760095.014073,
+            "vSolInBondingCurve":33.67999999992259,
+            "marketCapSol":35.238968623634236
+        },
+        {
+            "signature":"21KFHt6dgEVuk4qsetLiad9mnPwyt4Z2U6s3Sy8iefopBYffUxMd41XaYjrGjg1FWpBnn4DsAxuuZi4d9vvkSv3p",
+            "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+            "traderPublicKey":"AuKQzaXcZwWH77sJmwheexwVAyVg9oGfrdmKpgPuj7at",
+            "txType":"buy",
+            "tokenAmount":8429777.204002,
+            "newTokenBalance":8429777.204002,
+            "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+            "vTokensInBondingCurve":947330317.810071,
+            "vSolInBondingCurve":33.97969999990408,
+            "marketCapSol":35.868903761524734
+        },
+        {
+            "signature":"3ZNma6hgtYk5GqfjAsH2EzEXn2WfciTxuq9vWsBFdxpsk8HECu22YnY5qcWmGkGhh1Mav1Ma8M1CwntBr6ara4ux",
+            "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+            "traderPublicKey":"4RBnqw6CB9ANn9e16WWamqZNBZDHXwuFVWSjosk43ptC",
+            "txType":"sell",
+            "tokenAmount":14605679.543704,
+            "newTokenBalance":0,
+            "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+            "vTokensInBondingCurve":961935997.353775,
+            "vSolInBondingCurve":33.46376483316213,
+            "marketCapSol":34.78793279929104
+        },
+        {
+            "signature":"4yvsGZZoT16C1Qjs6sEzBLbj7yfiA8wFHYfGbfk2p3coofKYYVwgEtJC2SxfxTqgontRKprmEfYXaHmF9f6Dkhs2",
+            "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+            "traderPublicKey":"AuKQzaXcZwWH77sJmwheexwVAyVg9oGfrdmKpgPuj7at",
+            "txType":"sell",
+            "tokenAmount":8429777.204002,
+            "newTokenBalance":0,
+            "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+            "vTokensInBondingCurve":970365774.557777,
+            "vSolInBondingCurve":33.173057875696294,
+            "marketCapSol":34.18613758385511
+        },
+        {
+            "signature":"55nSrxZQiCdFSxt1RGoMcDRHRJefkZFx5MZff6h3i86GswPa7yw4PJpGQfjzfzzCixuRAfs8R3zUxkKH3Wj55EuF",
+            "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+            "traderPublicKey":"7d7iapfxQoMi5jM46h5vm8hHxrjsSVV2twYVSrYaCJdz",
+            "txType":"sell",
+            "tokenAmount":30582206.734745,
+            "newTokenBalance":0,
+            "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+            "vTokensInBondingCurve":1000947981.292522,
+            "vSolInBondingCurve":32.15951338293637,
+            "marketCapSol":32.12905563924397
+        },
+        {
+            "signature":"4jSL1sa5nXqbvqzJ2nSL3kZwZqNTaksA7KaPDkfG6YwtN8RumMWD3UXLkaNRm3i2PUd6Wj2RGZX9huQKsFcGywFq",
+            "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+            "traderPublicKey":"5gaewKWutRmK5J7iAFLFeEz8aeuhLMGsYwmXnZw8ib9L",
+            "txType":"buy",
+            "tokenAmount":584679.9521120004,
+            "newTokenBalance":7732152.992471,
+            "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+            "vTokensInBondingCurve":1000363301.34041,
+            "vSolInBondingCurve":32.17830957699855,
+            "marketCapSol":32.16662339960101
+        },
+        {
+            "signature":"3nWLjZYrrbPvYGNshApaiHaQS9jidMvzYLgsqywNRNebJsNdhA4kYZhxXh6R3DRR7snYUMM5pTmCx6aQJHxPxc26",
+            "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+            "traderPublicKey":"GazCsmGe5RkzZmaTtPrfYKnHqQ2RQZjq2uoW8nRUgYri",
+            "txType":"sell",
+            "tokenAmount":34612903.225806,
+            "newTokenBalance":0,
+            "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+            "vTokensInBondingCurve":1034976204.566216,
+            "vSolInBondingCurve":31.102164337673464,
+            "marketCapSol":30.051091223598853
+        },
+        {
+            "signature":"22xyhmt35AutSph1ZdMcbrUADpdXPwiwe9G2VomMKuMHDUhNSeqEYN2XJXYSswHManeJnH6QJA8Z1xjfxiuwH94K",
+            "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+            "traderPublicKey":"orcACRJYTFjTeo2pV8TfYRTpmqfoYgbVi9GeANXTCc8",
+            "txType":"sell",
+            "tokenAmount":30291642.440098997,
+            "newTokenBalance":0.001214,
+            "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+            "vTokensInBondingCurve":1065267847.006315,
+            "vSolInBondingCurve":30.217752361964582,
+            "marketCapSol":28.366342274278225
+        },
+        {
+            "signature":"osUSpasfsvdPkGXZGoLa68X7b1PRSpgUimM8MUNtw9nwMW9em3L4UKzDUDTDuF7FMAw1XGNtNDtPRCBnE7jRdr5",
+            "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+            "traderPublicKey":"5gaewKWutRmK5J7iAFLFeEz8aeuhLMGsYwmXnZw8ib9L",
+            "txType":"sell",
+            "tokenAmount":7732152.992471,
+            "newTokenBalance":0,
+            "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+            "vTokensInBondingCurve":1072999999.998786,
+            "vSolInBondingCurve":30.000000000033943,
+            "marketCapSol":27.958993476298126
+        }
+    ]
+
+    tokens = {"mint_address": {"trades": []}}
+    mint = "mint_address"
+    trading_amount = 0.45
+    keypair = Keypair.from_base58_string(appconfig.PRIVKEY)
+    pump = Pump(
+        executor_name="sniper_test",
+        trader_type=Trader.sniper
+    )
+
+    if "trades" not in tokens[mint]:
+        tokens[mint]["trades"] = []
+
+    for msg in messages:
+        # Doing some analytics like how many continuous buys have happend, etc
+        new_msg = trading_analytics(
+            msg=msg,
+            previous_trades=tokens[mint]["trades"],
+            amount_traded=trading_amount,
+            pubkey=keypair.pubkey()
+        )
+        # Including last message with new metadata into trades list
+        tokens[mint]["trades"].append(new_msg)
+        exit_trade, exis_criteria = pump.validate_criteria(msg=new_msg, criteria=TradeRoadmap.sniper_1[2]["criteria"])
+        if exit_trade:
+            print("Pump.test -> Criteria out: {}".format(exis_criteria))
+
+
+    print(tokens[mint]["trades"])
+
+#test()

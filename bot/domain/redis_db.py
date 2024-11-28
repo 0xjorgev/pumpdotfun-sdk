@@ -2,7 +2,7 @@ import redis
 from redisearch import Client, NumericField
 from datetime import datetime
 from bot.config import appconfig
-from bot.lib.utils import TxType, Path, Trader
+from bot.libs.utils import TxType, Path, Trader
 from typing import List, Dict
 
 

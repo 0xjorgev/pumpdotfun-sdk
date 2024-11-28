@@ -56,7 +56,7 @@ def trading_analytics(
         new_msg["max_consecutive_buys"] = [
             {
                 "quantity": new_msg["consecutive_buys"],
-                "sols": aprox or amount_traded | amount_traded
+                "sols": amount_traded if aprox == 0 else aprox
             }
         ]
 
@@ -115,12 +115,111 @@ def trading_analytics(
 
     return new_msg
 
+
+def max_consecutive_buys(buys: int, msg: dict) -> bool:
+    """
+    Checks if the maximum consecutive buys condition is met.
+    
+    Args:
+        buys (int): The maximum number of consecutive buys allowed.
+        msg (dict): The message dictionary containing context.
+
+    Returns:
+        bool: True if the condition is met, otherwise False.
+    """
+    return buys >= msg["max_consecutive_buys"]
+
+
+def max_consecutive_sells(sells: int, msg: dict) -> bool:
+    """
+    Checks if the maximum consecutive sells condition is met.
+    
+    Args:
+        sells (int): The maximum number of consecutive sells allowed.
+        msg (dict): The message dictionary containing context.
+
+    Returns:
+        bool: True if the condition is met, otherwise False.
+    """
+    return sells >= msg["max_consecutive_sells"]
+
+
+def max_seconds_between_buys(seconds: int, msg: dict) -> bool:
+    """
+    Checks if the maximum allowed seconds between buys condition is met.
+    
+    Args:
+        seconds (int): The maximum number of seconds allowed between buys.
+        msg (dict): The message dictionary containing context.
+
+    Returns:
+        bool: True if the condition is met, otherwise False.
+    """
+    pass
+
+
+def developer_has_sold(sold: bool, msg: dict) -> bool:
+    """
+    Checks if the developer has sold their tokens.
+    
+    Args:
+        sold (bool): A flag indicating whether the developer has sold tokens.
+        msg (dict): The message dictionary containing context.
+
+    Returns:
+        bool: True if the condition is met, otherwise False.
+    """
+    pass
+
+
+def max_sols_in_token_after_buying_in_percentage(percentage: int, msg: dict) -> bool:
+    """
+    Checks if the maximum percentage of SOLs in the token after buying condition is met.
+    
+    Args:
+        percentage (int): The maximum percentage of SOLs allowed in the token.
+        msg (dict): The message dictionary containing context.
+
+    Returns:
+        bool: True if the condition is met, otherwise False.
+    """
+    pass
+
+
+def market_inactivity(seconds: int, msg: dict) -> bool:
+    """
+    Checks if the market inactivity condition is met.
+    
+    Args:
+        seconds (int): The maximum number of seconds of inactivity allowed.
+        msg (dict): The message dictionary containing context.
+
+    Returns:
+        bool: True if the condition is met, otherwise False.
+    """
+    pass
+
+
+def max_seconds_in_market(seconds: int, msg: dict) -> bool:
+    """
+    Checks if the maximum seconds in the market condition is met.
+    
+    Args:
+        seconds (int): The maximum number of seconds allowed in the market.
+        msg (dict): The message dictionary containing context.
+
+    Returns:
+        bool: True if the condition is met, otherwise False.
+    """
+    pass
+
+
 def test():
     messages = [
         {
             "signature":"XGAnLe4EKCx4NNHv7soDimYZifwRndEGq1myrMDZR6DSRa6FgvcsMbpEz7XJrvRHxH6GcwPTr1oKt9jNWj5T4Uh",
             "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
-            "traderPublicKey":"7d7iapfxQoMi5jM46h5vm8hHxrjsSVV2twYVSrYaCJdz",
+            "traderPublicKey":"4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
             "txType":"buy",
             "tokenAmount":30582206.734745,
             "newTokenBalance":30582206.734745,
@@ -273,5 +372,3 @@ def test():
         tokens[mint]["trades"].append(new_msg)
 
     print(tokens[mint]["trades"])
-
-test()
