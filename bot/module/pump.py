@@ -187,6 +187,8 @@ class Pump:
 
     async def subscribe(self, steps: list):
         step_index = 0
+        print("Subscribe is working in {} mode.".format(appconfig.APPMODE))
+
         redisdb = RedisDB()
         await asyncio.sleep(2)  # Wait 2 seconds for the redis connection to start
 
@@ -274,11 +276,13 @@ class Pump:
                                         self.executor_name,
                                         self.trading_amount
                                     ))
+                                
+                                tokens_to_trade = any(token for token in tokens if token["is_checked"])
 
                                 # Safely unsubscribing from current channel listening
-                                redisdb.unsubscribe()
-
-                                break
+                                if tokens_to_trade:
+                                    redisdb.unsubscribe()
+                                    break
 
                         step_index += 1
                         continue
