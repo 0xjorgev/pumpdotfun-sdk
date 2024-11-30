@@ -24,9 +24,10 @@ from bot.libs.utils import (
     Trader,
     TxType
 )
-from bot.config import appconfig
+from bot.config import appconfig, AppMode
 from bot.domain.redis_db import RedisDB
 
+from datetime import datetime
 from enum import Enum
 from solders.transaction import VersionedTransaction
 from solders.keypair import Keypair
@@ -215,10 +216,11 @@ class Pump:
                         for message in redisdb.pubsub.listen():
                             if message["type"] == "psubscribe":
                                 print("Subscribed to redis")
+
                             if message["type"] == "pmessage":
                                 # Parse the message
                                 key = ":".join(message["channel"].split(":")[1:])
-                                # - Take key and retrieve token from redis
+                                # Get token information: Take key and retrieve token from redis
                                 tokens = redisdb.get_fresh_tokens(
                                     trader=Trader.sniper,
                                     mint_address=key
@@ -226,35 +228,50 @@ class Pump:
                                 # - Ignore token that are not fresh or for not the current trader type
                                 if not tokens:
                                     continue
-                                # - Get token information
-                                # TODO: snipe againt to more than one token at the same time
-                                token = tokens[0]
+                                # Snipe against many tokens
+                                how_many = appconfig.TRADING_TOKENS_AT_THE_SAME_TIME
+                                if len(tokens) < appconfig.TRADING_TOKENS_AT_THE_SAME_TIME:
+                                    how_many = len(tokens)
 
-                                mint = token["mint"]
-                                amount = token["amount"]
-                                
-                                if self.balance >= amount:
-                                    self.trading_amount = amount
-                                else:
-                                    print("{}: Not enough balance for Token {} and amount {}. Balance is {}".format(
-                                        self.executor_name,
-                                        mint,
-                                        amount,
-                                        self.balance
-                                    ))
-                                    continue
-                                
-                                # - move to next step and update the token as being checked
-                                token = redisdb.update_token(
-                                    token=token,
-                                    is_checked=False
-                                )
-                                self.add_update_token(token=token)
+                                for token in tokens[0: how_many - 1]:
+                                    mint = token["mint"]
+                                    amount = token["amount"]
 
-                                # Safely unsubscribing current channellistening
+                                    # FILTERING BY TOKEN'S CREATION TIME
+                                    token_creation_time = datetime.fromtimestamp(token["timestamp"])
+                                    token_age = (datetime.now() - token_creation_time).total_seconds()
+                                    if token_age >= appconfig.TRADING_TOKEN_TOO_OLD_SECONDS and \
+                                        appconfig.APPMODE not in [AppMode.dummy.value, AppMode.simulation.value]:
+                                        print("Warning: susbscribe -> Token {} is too old for trading.".format(
+                                            token["name"]
+                                        ))
+                                        continue
+                                    # Checking wallet's balance before trading                  
+                                    if self.balance >= amount:
+                                        self.trading_amount = amount
+                                    else:
+                                        print("{}: Warning: susbscribe -> Not enough balance for Token {} and amount {}. Balance is {}".format(
+                                            self.executor_name,
+                                            mint,
+                                            amount,
+                                            self.balance
+                                        ))
+                                        if appconfig.APPMODE in [AppMode.dummy.value, AppMode.simulation.value]:
+                                            continue
+                                        else:
+                                            break
+                                    
+                                    # - move to next step and update the token as being checked
+                                    token = redisdb.update_token(
+                                        token=token,
+                                        is_checked=False
+                                    )
+                                    self.add_update_token(token=token)
+
+                                # Safely unsubscribing from current channel listening
                                 redisdb.unsubscribe()
 
-                                print("Token {} assigned to {} to trade {}".format(
+                                print("Token {} assigned to {} to trade {}Sols".format(
                                     token["mint"],
                                     self.executor_name,
                                     self.trading_amount
@@ -262,10 +279,9 @@ class Pump:
                                 break
 
                         step_index += 1
-
                         continue
+
                     if step["redis"] == Redis.closeToken:
-                        # TODO: mark token in redis as closed
                         self.remove_token(token=self.tokens[mint])
                         step_index += 1
                         continue
@@ -376,6 +392,7 @@ class Pump:
                         # This is the first message we get when we connect
                         if "message" in msg:
                             print(msg["message"])
+                            # If the message is about unsibscribing, then we move on to the next step
                             if suscription.value == Suscription.unsubscribeTokenTrade.value and "unsubscribed" in msg["message"].lower():
                                 move_to_next_step = True
                             else:
@@ -536,8 +553,9 @@ class Pump:
         response = None
         retries = 0
         while True:
-            if appconfig.ENVIRONMENT == "DUMMY":
-                print("trade -> DUMMY MODE: returning dummy transaction")
+            # Faking transaction for none real modes
+            if appconfig.APPMODE not in [AppMode.real.value]:
+                print("trade -> {} MODE: returning dummy transaction".format(appconfig.APPMODE))
                 txSignature = "txn_dummy_{}".format(txtype.value)
                 break
 

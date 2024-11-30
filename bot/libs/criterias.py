@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Dict, List
+from bot.config import appconfig
 from bot.libs.utils import TxType
 
 from solders.pubkey import Pubkey
@@ -31,6 +32,9 @@ def trading_analytics(
     new_msg = msg.copy()
     new_msg["timestamp"] = datetime.now().timestamp()       # Including timestamp in incomming message
 
+    # Checking if the trade position is relevant enough to be considering for criteria
+    new_msg["is_relevant_trade"] = True
+
     # Default values that might change
     new_msg["consecutive_buys"] = 1 if msg["txType"].lower() == TxType.buy.value else 0
     new_msg["consecutive_sells"] = 1 if msg["txType"].lower() == TxType.sell.value else 0
@@ -41,6 +45,10 @@ def trading_analytics(
         if new_msg["traderPublicKey"] == str(pubkey):
             # We're the first recorded trade: we discount the amount to the current bonding curve
             new_msg["vSolInBondingCurve_Base"] = new_msg["vSolInBondingCurve"] - amount_traded
+            
+            # Volume bot case: small trades might not be relevant. Starting counter
+            new_msg["is_relevant_trade"] = amount_traded >= appconfig.TRADING_CRITERIA_TRADE_RELEVANT_AMOUNT
+            new_msg["is_non_relevant_trade_count"] = 0 if new_msg["is_relevant_trade"] else 1
         else:
             # The first recorded trade is not from us. So we can make an aproximation
             aprox = new_msg["tokenAmount"] * new_msg["vSolInBondingCurve"]
@@ -48,6 +56,9 @@ def trading_analytics(
             aprox = aprox / new_msg["vTokensInBondingCurve"]
             # We discount the Sols traded by the current trader to the current Sols in Bonding Curve
             new_msg["vSolInBondingCurve_Base"] = new_msg["vSolInBondingCurve"] - aprox
+            # Checking if this trade is relavant or not and starting counter for consecutives buys/sells
+            new_msg["is_relevant_trade"] = aprox >= appconfig.TRADING_CRITERIA_TRADE_RELEVANT_AMOUNT
+            new_msg["is_non_relevant_trade_count"] = 0 if new_msg["is_relevant_trade"] else 1
 
         new_msg["seconds_between_buys"] = 0
         new_msg["seconds_between_sells"] = 0
@@ -66,6 +77,13 @@ def trading_analytics(
         last_msg_timestamp = datetime.fromtimestamp(last_msg["timestamp"])
         first_trade_timestamp = datetime.fromtimestamp(previous_trades[0]["timestamp"])
 
+        # Current solanas traded
+        sols = new_msg["vSolInBondingCurve"] - last_msg["vSolInBondingCurve"]
+        # Checking if this trade is relavant or not. Keeping counter for consecutives buys/sells
+        new_msg["is_relevant_trade"] = sols >= appconfig.TRADING_CRITERIA_TRADE_RELEVANT_AMOUNT
+        # We just count non relevant trades with consecutives buys/sells
+        new_msg["is_non_relevant_trade_count"] = 0 if new_msg["is_relevant_trade"] else 1
+
         # We always keep track of the consecutive buys
         new_msg["max_consecutive_buys"] = last_msg["max_consecutive_buys"]
 
@@ -74,11 +92,24 @@ def trading_analytics(
             new_msg["seconds_between_sells"] = 0
 
             if last_msg["txType"].lower() == TxType.buy.value:
-                new_msg["consecutive_buys"] = 1 + last_msg["consecutive_buys"]
-                new_msg["seconds_between_buys"] = (datetime.now() - last_msg_timestamp).total_seconds()
-                # Updating the last record
-                new_msg["max_consecutive_buys"][-1]["quantity"] = 1 + last_msg["consecutive_buys"]
-                new_msg["max_consecutive_buys"][-1]["sols"] += new_msg["vSolInBondingCurve"] - last_msg["vSolInBondingCurve"]
+                # Starting counter for non relevant trades with consecutives buys/sells
+                if not new_msg["is_relevant_trade"] and not last_msg["is_relevant_trade"]:
+                    new_msg["is_non_relevant_trade_count"] += last_msg["is_non_relevant_trade_count"]
+                
+                # Considering consecutives buys for relevan trades or for consecutives non relevant
+                # trades that have reached the accepted tolerance
+                tolerance = appconfig.TRADING_CRITERIA_CONSECUTIVES_NON_RELEVANT_TRADES_TOLERANCE
+                if new_msg["is_relevant_trade"] or \
+                    not new_msg["is_relevant_trade"] and new_msg["is_non_relevant_trade_count"] >= tolerance:
+        
+                    new_msg["is_non_relevant_trade_count"] = 0
+
+                    new_msg["consecutive_buys"] = 1 + last_msg["consecutive_buys"]
+                    new_msg["seconds_between_buys"] = (datetime.now() - last_msg_timestamp).total_seconds()
+                    # Updating the last record
+                    new_msg["max_consecutive_buys"][-1]["quantity"] = 1 + last_msg["consecutive_buys"]
+                    new_msg["max_consecutive_buys"][-1]["sols"] += sols
+                
             else:
                 new_msg["consecutive_buys"] = 1
                 new_msg["seconds_between_buys"] = 0
@@ -86,7 +117,7 @@ def trading_analytics(
                 new_msg["max_consecutive_buys"].append(
                     {
                         "quantity": 1,
-                        "sols": new_msg["vSolInBondingCurve"] - last_msg["vSolInBondingCurve"]
+                        "sols": sols
                     }
                 )
 
@@ -95,8 +126,21 @@ def trading_analytics(
             new_msg["seconds_between_buys"] = 0
 
             if last_msg["txType"].lower() == TxType.sell.value:
-                new_msg["consecutive_sells"] = 1 + last_msg["consecutive_sells"]
-                new_msg["seconds_between_sells"] = (datetime.now() - last_msg_timestamp).total_seconds()
+                # Starting counter for non relevant trades with consecutives buys/sells
+                if not new_msg["is_relevant_trade"] and not last_msg["is_relevant_trade"]:
+                    new_msg["is_non_relevant_trade_count"] += last_msg["is_non_relevant_trade_count"]
+
+                # Considering consecutives buys for relevan trades or for consecutives non relevant
+                # trades that have reached the accepted tolerance
+                tolerance = appconfig.TRADING_CRITERIA_CONSECUTIVES_NON_RELEVANT_TRADES_TOLERANCE
+                if new_msg["is_relevant_trade"] or \
+                    not new_msg["is_relevant_trade"] and new_msg["is_non_relevant_trade_count"] >= tolerance:
+        
+                    new_msg["is_non_relevant_trade_count"] = 0
+
+                    new_msg["consecutive_sells"] = 1 + last_msg["consecutive_sells"]
+                    new_msg["seconds_between_sells"] = (datetime.now() - last_msg_timestamp).total_seconds()
+
             else:
                 new_msg["consecutive_sells"] = 1
                 new_msg["seconds_between_sells"] = 0
@@ -122,7 +166,7 @@ def trading_analytics(
 
 def max_consecutive_buys(buys: int, msg: dict) -> bool:
     """
-    Checks if the maximum consecutive buys condition is met.
+    Checks if the maximum consecutive buys has been reached.
     
     Args:
         buys (int): The maximum number of consecutive buys allowed.
@@ -131,7 +175,7 @@ def max_consecutive_buys(buys: int, msg: dict) -> bool:
     Returns:
         bool: True if the condition is met, otherwise False.
     """
-    return buys >= msg["consecutive_buys"]
+    return msg["consecutive_buys"] >= buys
 
 
 def max_consecutive_sells(sells: int, msg: dict) -> bool:
@@ -145,12 +189,12 @@ def max_consecutive_sells(sells: int, msg: dict) -> bool:
     Returns:
         bool: True if the condition is met, otherwise False.
     """
-    return sells >= msg["consecutive_sells"]
+    return msg["consecutive_sells"] >= sells
 
 
 def max_seconds_between_buys(seconds: int, msg: dict) -> bool:
     """
-    Checks if the maximum allowed seconds between buys condition is met.
+    Checks if the maximum allowed seconds between buys has been reached.
     
     Args:
         seconds (int): The maximum number of seconds allowed between buys.
@@ -159,7 +203,7 @@ def max_seconds_between_buys(seconds: int, msg: dict) -> bool:
     Returns:
         bool: True if the condition is met, otherwise False.
     """
-    pass
+    return msg["seconds_between_buys"] >= seconds
 
 
 def developer_has_sold(sold: bool, msg: dict) -> bool:
@@ -219,6 +263,8 @@ def max_seconds_in_market(seconds: int, msg: dict) -> bool:
 
 
 def test():
+    print("#######################")
+    print(" TEST NON RELEVANT TRADES COUNT AND MODIFY MESSAGES IN THIS FUNCTION")
     messages = [
         {
             "signature":"XGAnLe4EKCx4NNHv7soDimYZifwRndEGq1myrMDZR6DSRa6FgvcsMbpEz7XJrvRHxH6GcwPTr1oKt9jNWj5T4Uh",
