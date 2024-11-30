@@ -12,7 +12,6 @@ from bot.libs.criterias import (
     max_consecutive_buys,
     max_consecutive_sells,
     max_seconds_between_buys,
-    max_seconds_in_market,
     max_sols_in_token_after_buying_in_percentage,
     trader_has_sold,
     market_inactivity
@@ -96,8 +95,7 @@ class TradeRoadmap:
                 "max_seconds_between_buys": 3,
                 "trader_has_sold": True,
                 "max_sols_in_token_after_buying_in_percentage": 100,
-                "market_inactivity": 5,
-                "max_seconds_in_market": 10
+                "market_inactivity": 3
             }
         },
         {"step": 3, "name": "TRADE_TOKEN_SELL", "action": TxType.sell},
@@ -369,6 +367,11 @@ class Pump:
                         "method": suscription.value,
                     }
 
+                    websocket_timeout = appconfig.TRADING_MARKETING_INACTIVITY_TIMEOUT
+                    if "criteria" in step:
+                        if "market_inactivity" in step["criteria"]:
+                            websocket_timeout = step["criteria"]["market_inactivity"]
+
                     if suscription.value == Suscription.subscribeAccountTrade.value:
                         payload["keys"] = self.accounts
 
@@ -389,58 +392,123 @@ class Pump:
                             self.tokens[mint]["is_checked"] and \
                             not self.tokens[mint]["is_closed"]:
                             pass
-
-                    # MAIN WEBSOCKET THREAD
-                    async for message in websocket:
-                        msg = json.loads(message)
-                        move_to_next_step = False
-
-                        # This is the first message we get when we connect
-                        if "message" in msg:
-                            print(msg["message"])
-                            # If the message is about unsibscribing, then we move on to the next step
-                            if suscription.value == Suscription.unsubscribeTokenTrade.value and "unsubscribed" in msg["message"].lower():
-                                move_to_next_step = True
-                            else:
-                                continue
-
-                        if suscription.value == Suscription.subscribeNewToken.value:
-                            move_to_next_step = self.new_token_suscription(msg=msg)
-
-                        if suscription.value == Suscription.subscribeTokenTrade.value:
-                            # Getting the mint address we'll work with
-                            mint = msg["mint"]
-
-                            # We'll not pay attention to closed token trades
-                            if self.tokens[mint]["is_closed"]:
-                                continue
-
-                            if "trades" not in self.tokens[mint]:
-                                self.tokens[mint]["trades"] = []
-
-                            # Doing some analytics like how many continuous buys have happend, etc
-                            new_msg = trading_analytics(
-                                msg=msg,
-                                previous_trades=self.tokens[mint]["trades"],
-                                amount_traded=self.trading_amount,
-                                pubkey=self.keypair.pubkey(),
-                                traders=self.tokens[mint]["track_traders"] if "track_traders" in self.tokens[mint] else []
+                    
+                    while True:
+                        try:
+                            message = await asyncio.wait_for(
+                                websocket.recv(),
+                                timeout=websocket_timeout
                             )
-                            # Including last message with new metadata into trades list
-                            self.tokens[mint]["trades"].append(new_msg)
- 
-                            move_to_next_step, criteria = self.validate_criteria(
-                                msg=new_msg,
-                                criteria=step["criteria"]
-                            )
-                            # Including exit criteria in token for further analytics
-                            self.tokens[mint]["exit_criteria"] = criteria
+                            msg = json.loads(message)
+                            move_to_next_step = False
 
-                        # Moving to the next step
-                        if move_to_next_step:
+                            # This is the first message we get when we connect
+                            if "message" in msg:
+                                print(msg["message"])
+                                # If the message is about unsibscribing, then we move on to the next step
+                                if suscription.value == Suscription.unsubscribeTokenTrade.value and "unsubscribed" in msg["message"].lower():
+                                    move_to_next_step = True
+                                else:
+                                    continue
+
+                            if suscription.value == Suscription.subscribeNewToken.value:
+                                move_to_next_step = self.new_token_suscription(msg=msg)
+
+                            if suscription.value == Suscription.subscribeTokenTrade.value:
+                                # Getting the mint address we'll work with
+                                mint = msg["mint"]
+
+                                # We'll not pay attention to closed token trades
+                                if self.tokens[mint]["is_closed"]:
+                                    continue
+
+                                if "trades" not in self.tokens[mint]:
+                                    self.tokens[mint]["trades"] = []
+
+                                # Doing some analytics like how many continuous buys have happend, etc
+                                new_msg = trading_analytics(
+                                    msg=msg,
+                                    previous_trades=self.tokens[mint]["trades"],
+                                    amount_traded=self.trading_amount,
+                                    pubkey=self.keypair.pubkey(),
+                                    traders=self.tokens[mint]["track_traders"] if "track_traders" in self.tokens[mint] else []
+                                )
+                                # Including last message with new metadata into trades list
+                                self.tokens[mint]["trades"].append(new_msg)
+    
+                                move_to_next_step, criteria = self.validate_criteria(
+                                    msg=new_msg,
+                                    criteria=step["criteria"]
+                                )
+                                # Including exit criteria in token for further analytics
+                                self.tokens[mint]["exit_criteria"] = criteria
+
+                            # Moving to the next step
+                            if move_to_next_step:
+                                step_index += 1
+                                move_to_next_step = False
+                                break
+
+                        except asyncio.TimeoutError:
+                            print("No trades detected during {} seconds. Moving to next step.".format(
+                                websocket_timeout
+                            ))
+                            self.tokens[mint]["exit_criteria"] = "market_inactivity"
                             step_index += 1
                             move_to_next_step = False
                             break
+
+                    # # MAIN WEBSOCKET THREAD
+                    # async for message in websocket:
+                    #     msg = json.loads(message)
+                    #     move_to_next_step = False
+
+                    #     # This is the first message we get when we connect
+                    #     if "message" in msg:
+                    #         print(msg["message"])
+                    #         # If the message is about unsibscribing, then we move on to the next step
+                    #         if suscription.value == Suscription.unsubscribeTokenTrade.value and "unsubscribed" in msg["message"].lower():
+                    #             move_to_next_step = True
+                    #         else:
+                    #             continue
+
+                    #     if suscription.value == Suscription.subscribeNewToken.value:
+                    #         move_to_next_step = self.new_token_suscription(msg=msg)
+
+                    #     if suscription.value == Suscription.subscribeTokenTrade.value:
+                    #         # Getting the mint address we'll work with
+                    #         mint = msg["mint"]
+
+                    #         # We'll not pay attention to closed token trades
+                    #         if self.tokens[mint]["is_closed"]:
+                    #             continue
+
+                    #         if "trades" not in self.tokens[mint]:
+                    #             self.tokens[mint]["trades"] = []
+
+                    #         # Doing some analytics like how many continuous buys have happend, etc
+                    #         new_msg = trading_analytics(
+                    #             msg=msg,
+                    #             previous_trades=self.tokens[mint]["trades"],
+                    #             amount_traded=self.trading_amount,
+                    #             pubkey=self.keypair.pubkey(),
+                    #             traders=self.tokens[mint]["track_traders"] if "track_traders" in self.tokens[mint] else []
+                    #         )
+                    #         # Including last message with new metadata into trades list
+                    #         self.tokens[mint]["trades"].append(new_msg)
+ 
+                    #         move_to_next_step, criteria = self.validate_criteria(
+                    #             msg=new_msg,
+                    #             criteria=step["criteria"]
+                    #         )
+                    #         # Including exit criteria in token for further analytics
+                    #         self.tokens[mint]["exit_criteria"] = criteria
+
+                    #     # Moving to the next step
+                    #     if move_to_next_step:
+                    #         step_index += 1
+                    #         move_to_next_step = False
+                    #         break
 
 
                 # TODO: add a safely exit way of ending the program

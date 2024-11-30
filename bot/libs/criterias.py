@@ -234,9 +234,9 @@ def max_sols_in_token_after_buying_in_percentage(percentage: int, msg: dict) -> 
     pass
 
 
-def market_inactivity(seconds: int, msg: dict) -> bool:
+def market_inactivity(seconds: int, msg: dict = None) -> bool:
     """
-    Checks if the market inactivity condition is met.
+    Dummy fuction as it retrieves seconds received
     
     Args:
         seconds (int): The maximum number of seconds of inactivity allowed.
@@ -245,21 +245,7 @@ def market_inactivity(seconds: int, msg: dict) -> bool:
     Returns:
         bool: True if the condition is met, otherwise False.
     """
-    pass
-
-
-def max_seconds_in_market(seconds: int, msg: dict) -> bool:
-    """
-    Checks if the maximum seconds in the market condition is met.
-    
-    Args:
-        seconds (int): The maximum number of seconds allowed in the market.
-        msg (dict): The message dictionary containing context.
-
-    Returns:
-        bool: True if the condition is met, otherwise False.
-    """
-    pass
+    return seconds
 
 
 def test():
