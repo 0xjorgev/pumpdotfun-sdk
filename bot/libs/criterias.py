@@ -155,8 +155,8 @@ def trading_analytics(
         new_msg["vSolInBondingCurve_Base"] = last_msg["vSolInBondingCurve_Base"]
 
 
-    # Checking if the current traders is in the trader's list
-    new_msg["developer_has_sold"] = new_msg["traderPublicKey"] in traders
+    # Checking if the current trader is in the trader's list
+    new_msg["trader_has_sold"] = new_msg["traderPublicKey"] in traders
 
     # Amount of Solana the token is holding after our buy
     new_msg["sols_in_token_after_buying"] = new_msg["vSolInBondingCurve"] - new_msg["vSolInBondingCurve_Base"]
@@ -206,9 +206,9 @@ def max_seconds_between_buys(seconds: int, msg: dict) -> bool:
     return msg["seconds_between_buys"] >= seconds
 
 
-def developer_has_sold(sold: bool, msg: dict) -> bool:
+def trader_has_sold(msg: dict) -> bool:
     """
-    Checks if the developer has sold their tokens.
+    Checks if the trader or developer has sold their tokens.
     
     Args:
         sold (bool): A flag indicating whether the developer has sold tokens.
@@ -217,7 +217,7 @@ def developer_has_sold(sold: bool, msg: dict) -> bool:
     Returns:
         bool: True if the condition is met, otherwise False.
     """
-    pass
+    return msg["trader_has_sold"]
 
 
 def max_sols_in_token_after_buying_in_percentage(percentage: int, msg: dict) -> bool:

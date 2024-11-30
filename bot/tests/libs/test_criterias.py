@@ -8,7 +8,8 @@ from bot.libs.criterias import (
     trading_analytics,
     exit_on_first_sale,
     max_consecutive_buys,
-    max_seconds_between_buys
+    max_seconds_between_buys,
+    trader_has_sold
 )
 
 
@@ -360,3 +361,136 @@ def test_max_seconds_between_buys(
             msg=new_msg
         )
     assert seconds_exceeded == max_seconds_between_buys_result, description
+
+
+@pytest.mark.parametrize(
+    """
+        description,
+        msg,
+        previous_trades,
+        amount,
+        traders,
+        trader_has_sold_result,
+    """,
+    [
+        (
+            "Trader has sold: False",
+            {
+                "signature":"xxxx",
+                "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                "traderPublicKey":"4RBnqw6CB9ANn9e16WWamqZNBZDHXwuFVWSjosk43ptC",
+                "txType":"buy",
+                "tokenAmount":10000.00,
+                "newTokenBalance":30582206.734745,
+                "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                "vTokensInBondingCurve":200000000.00,
+                "vSolInBondingCurve":32.500,
+                "marketCapSol":32.001
+            },
+            [
+                {
+                    "signature":"xxxx",
+                    "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                    "traderPublicKey":"4RBnqw6CB9ANn9e16WWamqZNBZDHXwuFVWSjosk43ptC",
+                    "txType":"buy",
+                    "tokenAmount":10000000.0,
+                    "newTokenBalance":30582206.734745,
+                    "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                    "vTokensInBondingCurve":200000000.0,
+                    "vSolInBondingCurve":32.0,
+                    "marketCapSol":33.0,
+                    "timestamp":(datetime.now() - timedelta(seconds=2)).timestamp(),
+                    "is_relevant_trade":True,
+                    "consecutive_buys":1,
+                    "consecutive_sells":0,
+                    "vSolInBondingCurve_Base":30.4,
+                    "is_non_relevant_trade_count":0,
+                    "seconds_between_buys":0,
+                    "seconds_between_sells":0,
+                    "market_inactivity":0,
+                    "max_seconds_in_market":0,
+                    "max_consecutive_buys":[
+                        {
+                            "quantity":1,
+                            "sols":1.6
+                        }
+                    ]
+                }
+            ],
+            0.5,
+            [
+                "4XXnqw6CB9ANn9e16WWamqZNBZDHXwuFVWSjosk43xxX"
+            ],
+            False
+        ),
+        (
+            "Trader has sold: True",
+            {
+                "signature":"xxxx",
+                "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                "traderPublicKey":"4RBnqw6CB9ANn9e16WWamqZNBZDHXwuFVWSjosk43ptC",
+                "txType":"buy",
+                "tokenAmount":10000.00,
+                "newTokenBalance":30582206.734745,
+                "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                "vTokensInBondingCurve":200000000.00,
+                "vSolInBondingCurve":32.500,
+                "marketCapSol":32.001
+            },
+            [
+                {
+                    "signature":"xxxx",
+                    "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                    "traderPublicKey":"4RBnqw6CB9ANn9e16WWamqZNBZDHXwuFVWSjosk43ptC",
+                    "txType":"buy",
+                    "tokenAmount":10000000.0,
+                    "newTokenBalance":30582206.734745,
+                    "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                    "vTokensInBondingCurve":200000000.0,
+                    "vSolInBondingCurve":32.0,
+                    "marketCapSol":33.0,
+                    "timestamp":(datetime.now() - timedelta(seconds=2)).timestamp(),
+                    "is_relevant_trade":True,
+                    "consecutive_buys":1,
+                    "consecutive_sells":0,
+                    "vSolInBondingCurve_Base":30.4,
+                    "is_non_relevant_trade_count":0,
+                    "seconds_between_buys":0,
+                    "seconds_between_sells":0,
+                    "market_inactivity":0,
+                    "max_seconds_in_market":0,
+                    "max_consecutive_buys":[
+                        {
+                            "quantity":1,
+                            "sols":1.6
+                        }
+                    ]
+                }
+            ],
+            0.5,
+            [
+                "4XXnqw6CB9ANn9e16WWamqZNBZDHXwuFVWSjosk43xxX",
+                "4RBnqw6CB9ANn9e16WWamqZNBZDHXwuFVWSjosk43ptC"
+            ],
+            True
+        ),
+    ]
+)
+def test_trader_has_sold(
+    get_pubkey,
+    description,
+    msg,
+    previous_trades,
+    amount,
+    traders,
+    trader_has_sold_result
+):
+    new_msg = trading_analytics(
+        msg=msg,
+        previous_trades=previous_trades,
+        amount_traded=amount,
+        pubkey=get_pubkey,
+        traders=traders
+    )
+    has_sold = trader_has_sold(msg=new_msg)
+    assert has_sold == trader_has_sold_result, description

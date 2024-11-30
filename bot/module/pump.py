@@ -14,7 +14,7 @@ from bot.libs.criterias import (
     max_seconds_between_buys,
     max_seconds_in_market,
     max_sols_in_token_after_buying_in_percentage,
-    developer_has_sold,
+    trader_has_sold,
     market_inactivity
 )
 from bot.libs import criterias as criteria_functions
@@ -94,7 +94,7 @@ class TradeRoadmap:
                 "max_consecutive_buys": 2,
                 "max_consecutive_sells": 1,
                 "max_seconds_between_buys": 3,
-                "developer_has_sold": True,
+                "trader_has_sold": True,
                 "max_sols_in_token_after_buying_in_percentage": 100,
                 "market_inactivity": 5,
                 "max_seconds_in_market": 10
