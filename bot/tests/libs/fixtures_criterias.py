@@ -3,10 +3,6 @@ from solders.pubkey import Pubkey
 
 
 @pytest.fixture
-def get_account():
-    yield "Some_account"
-
-@pytest.fixture
 def get_pubkey():
     yield Pubkey.from_string("4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb")
 

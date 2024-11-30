@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from typing import Any
 from unittest.mock import patch, Mock
 import pytest
@@ -59,8 +60,7 @@ def test_exit_on_first_sale(expected_result, msg, description):
         traders,
         relevant_trade,
         is_non_relevant_trade_count,
-        max_consecutive_buys_result,
-        max_seconds_between_buys_result,
+        max_consecutive_buys_result
     """,
     [
         (
@@ -82,7 +82,6 @@ def test_exit_on_first_sale(expected_result, msg, description):
             [],
             True,
             0,
-            False,
             False
         ),
         (
@@ -104,7 +103,6 @@ def test_exit_on_first_sale(expected_result, msg, description):
             [],
             False,
             1,
-            False,
             False
         ), 
         (
@@ -126,7 +124,6 @@ def test_exit_on_first_sale(expected_result, msg, description):
             [],
             True,
             0,
-            False,
             False
         ),
         (
@@ -148,7 +145,6 @@ def test_exit_on_first_sale(expected_result, msg, description):
             [],
             False,
             1,
-            False,
             False
         ),
         (
@@ -199,7 +195,6 @@ def test_exit_on_first_sale(expected_result, msg, description):
             [],
             True,
             0,
-            True,
             True
         )
     ]
@@ -207,7 +202,6 @@ def test_exit_on_first_sale(expected_result, msg, description):
 def test_trading_analytics_buys(
     get_pubkey,
     get_max_consecutive_buys,
-    get_max_seconds_between_buys,
     msg,
     previous_trades,
     amount,
@@ -215,8 +209,7 @@ def test_trading_analytics_buys(
     description,
     relevant_trade,
     is_non_relevant_trade_count,
-    max_consecutive_buys_result,
-    max_seconds_between_buys_result
+    max_consecutive_buys_result
 ):
     new_msg = trading_analytics(
         msg=msg,
@@ -234,9 +227,136 @@ def test_trading_analytics_buys(
     assert new_msg["is_non_relevant_trade_count"] == is_non_relevant_trade_count, description
 
     assert max_consecutive_buys(buys=get_max_consecutive_buys, msg=new_msg) == max_consecutive_buys_result
-    if not max_seconds_between_buys_result:
-        assert max_seconds_between_buys(
+
+
+@pytest.mark.parametrize(
+    """
+        description,
+        msg,
+        previous_trades,
+        amount,
+        traders,
+        max_seconds_between_buys_result,
+    """,
+    [
+        (
+            "Max Seconds between buys: not exceeded",
+            {
+                "signature":"xxxx",
+                "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                "traderPublicKey":"4RBnqw6CB9ANn9e16WWamqZNBZDHXwuFVWSjosk43ptC",
+                "txType":"buy",
+                "tokenAmount":10000.00,
+                "newTokenBalance":30582206.734745,
+                "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                "vTokensInBondingCurve":200000000.00,
+                "vSolInBondingCurve":32.500,
+                "marketCapSol":32.001
+            },
+            [
+                {
+                    "signature":"xxxx",
+                    "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                    "traderPublicKey":"4RBnqw6CB9ANn9e16WWamqZNBZDHXwuFVWSjosk43ptC",
+                    "txType":"buy",
+                    "tokenAmount":10000000.0,
+                    "newTokenBalance":30582206.734745,
+                    "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                    "vTokensInBondingCurve":200000000.0,
+                    "vSolInBondingCurve":32.0,
+                    "marketCapSol":33.0,
+                    "timestamp":(datetime.now() - timedelta(seconds=2)).timestamp(),
+                    "is_relevant_trade":True,
+                    "consecutive_buys":1,
+                    "consecutive_sells":0,
+                    "vSolInBondingCurve_Base":30.4,
+                    "is_non_relevant_trade_count":0,
+                    "seconds_between_buys":0,
+                    "seconds_between_sells":0,
+                    "market_inactivity":0,
+                    "max_seconds_in_market":0,
+                    "max_consecutive_buys":[
+                        {
+                            "quantity":1,
+                            "sols":1.6
+                        }
+                    ]
+                }
+            ],
+            0.5,
+            [],
+            False
+        ),
+        (
+            "Max Seconds between buys: exceeded",
+            {
+                "signature":"xxxx",
+                "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                "traderPublicKey":"4RBnqw6CB9ANn9e16WWamqZNBZDHXwuFVWSjosk43ptC",
+                "txType":"buy",
+                "tokenAmount":10000.00,
+                "newTokenBalance":30582206.734745,
+                "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                "vTokensInBondingCurve":200000000.00,
+                "vSolInBondingCurve":32.500,
+                "marketCapSol":32.001
+            },
+            [
+                {
+                    "signature":"xxxx",
+                    "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                    "traderPublicKey":"4RBnqw6CB9ANn9e16WWamqZNBZDHXwuFVWSjosk43ptC",
+                    "txType":"buy",
+                    "tokenAmount":10000000.0,
+                    "newTokenBalance":30582206.734745,
+                    "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                    "vTokensInBondingCurve":200000000.0,
+                    "vSolInBondingCurve":32.0,
+                    "marketCapSol":33.0,
+                    "timestamp":(datetime.now() - timedelta(seconds=100)).timestamp(),
+                    "is_relevant_trade":True,
+                    "consecutive_buys":1,
+                    "consecutive_sells":0,
+                    "vSolInBondingCurve_Base":30.4,
+                    "is_non_relevant_trade_count":0,
+                    "seconds_between_buys":0,
+                    "seconds_between_sells":0,
+                    "market_inactivity":0,
+                    "max_seconds_in_market":0,
+                    "max_consecutive_buys":[
+                        {
+                            "quantity":1,
+                            "sols":1.6
+                        }
+                    ]
+                }
+            ],
+            0.5,
+            [],
+            True
+        )
+    ]
+)
+def test_max_seconds_between_buys(
+    get_pubkey,
+    get_max_seconds_between_buys,
+    msg,
+    previous_trades,
+    amount,
+    traders,
+    description,
+    max_seconds_between_buys_result
+):
+    new_msg = trading_analytics(
+        msg=msg,
+        previous_trades=previous_trades,
+        amount_traded=amount,
+        pubkey=get_pubkey,
+        traders=traders
+    )
+
+    seconds_exceeded = max_seconds_between_buys(
             seconds=get_max_seconds_between_buys,
             msg=new_msg
-        ) == max_seconds_between_buys_result
-
+        )
+    assert seconds_exceeded == max_seconds_between_buys_result, description
