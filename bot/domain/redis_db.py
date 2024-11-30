@@ -92,17 +92,17 @@ class RedisDB:
             trader_match = data.get("trader", "unknown") == trader.value
 
             if not is_checked and trader_match:
+                track_traders = data["track_traders"] if "track_traders" in data else []
                 token = {
                     "key": key,
-                    "mint": key.replace("token:", ""),
-                    "amount": float(data["amount"]),
-                    "trader": data["trader"],
-                    # "is_traded": True if int(data["is_traded"]) == 1 else False,
-                    "is_checked": is_checked,
-                    #### "timestamp": datetime.fromtimestamp(float(data["timestamp"])),
-                    "timestamp": data["timestamp"],
-                    "name": data["name"],
-                    "ticker": data["ticker"]
+                    "mint": key.replace("token:", ""),      # Mint address from key value
+                    "amount": float(data["amount"]),        # Amount of Sols to be traded
+                    "trader": data["trader"],               # Trader bot that will execute this trade
+                    "is_checked": is_checked,               # By default is_checked is False.
+                    "timestamp": data["timestamp"],         # Getting timestamp from redis
+                    "name": data["name"],                   # Token name
+                    "ticker": data["ticker"],               # Token's Ticker
+                    "track_traders": track_traders          # Tracking other traders activity
                 }
                 tokens.append(token)
 

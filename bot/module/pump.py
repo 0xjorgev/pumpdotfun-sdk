@@ -233,7 +233,7 @@ class Pump:
                                 if len(tokens) < appconfig.TRADING_TOKENS_AT_THE_SAME_TIME:
                                     how_many = len(tokens)
 
-                                for token in tokens[0: how_many - 1]:
+                                for token in tokens[0: how_many]:
                                     mint = token["mint"]
                                     amount = token["amount"]
 
@@ -268,14 +268,16 @@ class Pump:
                                     )
                                     self.add_update_token(token=token)
 
+                                    print("Token {}:{} assigned to {} to trade {}Sols".format(
+                                        token["name"],
+                                        token["mint"],
+                                        self.executor_name,
+                                        self.trading_amount
+                                    ))
+
                                 # Safely unsubscribing from current channel listening
                                 redisdb.unsubscribe()
 
-                                print("Token {} assigned to {} to trade {}Sols".format(
-                                    token["mint"],
-                                    self.executor_name,
-                                    self.trading_amount
-                                ))
                                 break
 
                         step_index += 1
@@ -417,7 +419,8 @@ class Pump:
                                 msg=msg,
                                 previous_trades=self.tokens[mint]["trades"],
                                 amount_traded=self.trading_amount,
-                                pubkey=self.keypair.pubkey()
+                                pubkey=self.keypair.pubkey(),
+                                traders=self.tokens[mint]["track_traders"] if "track_traders" in self.tokens[mint] else []
                             )
                             # Including last message with new metadata into trades list
                             self.tokens[mint]["trades"].append(new_msg)
@@ -504,7 +507,7 @@ class Pump:
             if callable(function):
                 # Call the function with the parameter and msg
                 is_valid = function(parameter, msg)
-                print(f"Function {function_name} returned: {is_valid}")
+                print(f"validate_criteria-> Function {function_name} returned: {is_valid}")
             else:
                 print(f"validate_criteria-> Error: {function_name} not found.")
             
