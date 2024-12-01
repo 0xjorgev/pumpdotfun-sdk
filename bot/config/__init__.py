@@ -51,6 +51,11 @@ class AuthConfig:
     TRADING_RETRIES = 3
     TRADING_TOKEN_TOO_OLD_SECONDS = 15
     TRADING_MARKETING_INACTIVITY_TIMEOUT = 60
+    SCANNER_MIN_TRADING_AMOUNT = 1.00       # Min Sols a token must have as first buy to be considered for trading
+    SCANNER_WRITTING_CAPACITY = 1           # How many tokens to scanned will write at the same time in Redis
+    SCANNER_TRADING_AMOUNT = 1.00           # Sols the sniper will trade
+    SCANNER_WORKING_TIME = 60               # Seconds the scanner will be working
+    SCANNER_PUMPDONTFUN_INITIAL_FUND = 30   # Sols placed by pump.fun to launch a token
     #DB
     REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
     REDIS_PORT = os.environ.get("REDIS_PORT", "6379")

@@ -9,12 +9,18 @@ async def main():
         trader_type=Trader.sniper
     )
 
+    scanner = Pump(
+        executor_name="scanner",
+        trader_type=Trader.scanner
+    )
+
     tasks = [
-        pump.subscribe(steps=TradeRoadmap.sniper_1)
+        #pump.subscribe(steps=TradeRoadmap.sniper_1),
+        scanner.subscribe(steps=TradeRoadmap.scanner)
     ]
 
     await asyncio.gather(*tasks)
-    logging.log("Stoping program")
+    print("Stoping program")
 
 
 if __name__ == "__main__":

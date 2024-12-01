@@ -21,6 +21,11 @@ class Trader(Enum):
     sniper = "sniper"
     volume_bot = "volume_bot"
     token_creator = "token_creator"
+    analytics = "analytics"
+    scanner = "scanner"
+
+class Celebrimborg(Enum):
+    exit = "exit"
 
 async def get_solana_balance(public_key: Pubkey) -> float:
     """
@@ -38,7 +43,7 @@ async def get_solana_balance(public_key: Pubkey) -> float:
                 sol_balance = lamports / 1e9
                 return sol_balance
             except Exception as e:
-                print(f"Error fetching balance: {e}")
+                print(f"Error fetching balance: {e.error_msg}")
                 return 0.0
 
 async def get_own_token_balance(wallet_pubkey: Pubkey, token_mint_addres: str) -> float:
@@ -97,3 +102,8 @@ def decode_pump_fun_token(token: str) -> Pubkey:
         return Pubkey(decoded_bytes)
     except Exception as e:
         raise ValueError(f"Failed to decode token: {e}")
+
+def initial_buy_calculator(sol_in_bonding_curve: float):
+    pump_dont_fun_initial_fund = appconfig.SCANNER_PUMPDONTFUN_INITIAL_FUND
+    sols = round(sol_in_bonding_curve - pump_dont_fun_initial_fund, 3)
+    return sols

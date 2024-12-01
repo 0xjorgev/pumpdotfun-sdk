@@ -21,7 +21,9 @@ from bot.libs.utils import (
     get_solana_balance,
     get_own_token_balance,
     Trader,
-    TxType
+    TxType,
+    Celebrimborg,
+    initial_buy_calculator
 )
 from bot.config import appconfig, AppMode
 from bot.domain.redis_db import RedisDB
@@ -49,6 +51,7 @@ class Redis(Enum):
     selectToken = "selectToken"
     closeToken = "closeToken"
     readTraders = "readTraders"
+    saveToken = "saveToken"
 
 
 class TradeRoadmap:
@@ -63,7 +66,7 @@ class TradeRoadmap:
             "name": "TRADER_SUBSCRIPTION",
             "subscription": Suscription.subscribeNewToken,
             "criteria": {
-                "discard_lower_than_sols": 1.00,
+                "min_initial_buy": 1.00,
             }
         },
         {"step": 2, "name": "TRADE_TOKEN", "action": TxType.buy},
@@ -81,6 +84,27 @@ class TradeRoadmap:
         {"step": 5, "name": "UNSUBSCRIBE_TO_TOKEN", "subscription": Suscription.unsubscribeTokenTrade},
         {"step": 6, "name": "MARK_TOKEN", "redis": Redis.closeToken},
 
+    ]
+    scanner = [
+        {
+            "step": 0,
+            "name": "SCANNER",
+            "subscription": Suscription.subscribeNewToken,
+            "criteria": {
+                "min_initial_buy": 1.50,        # Filter: we'll trade tokens with this initial buying amount at least.
+                "scanner_activity_time": 60,    # How much time the scanner will be working. -1 is always
+                "trade_amount": 1.00,           # Amount to be traded by snipers
+                "trader": Trader.sniper.value   # Who will trade the tokens
+            },
+            "action":{
+                "name": "SAVE_TOKEN_IN_REDIS",
+                "redis": Redis.saveToken,
+                "criteria": {
+                    "capacity": 1   # How many tokens will be written to redis at the same time
+                }
+            }
+        },
+        {"step": 1, "name": "exit", "system_action": Celebrimborg.exit},
     ]
     sniper_1 = [
         {"step": 0, "name": "WAIT_FOR_TOKEN", "redis": Redis.readToken},
@@ -123,7 +147,7 @@ class Pump:
         self.traders = []
         self.executor_name = executor_name
         self.trader_type = trader_type
-        self.min_initial_buy = 60000000
+        self.min_initial_buy = appconfig.SCANNER_MIN_TRADING_AMOUNT
         self.tokens_to_be_traded = appconfig.TRADING_TOKENS_AT_THE_SAME_TIME
         self.trading_amount = amount
         self.trading_sell_amount = amount * (1 + target)    # TODO: apply this when we have the Bounding Courve
@@ -132,6 +156,10 @@ class Pump:
         self.ssl_context = ssl.create_default_context(cafile=certifi.where())
         self.balance = self.get_balance(public_key=self.keypair.pubkey())
 
+        self.scanner_start_time = None
+
+    def start_scanner(self):
+        self.scanner_start_time = datetime.now()
 
     def get_balance(self, public_key):
         balance = asyncio.run(get_solana_balance(public_key=public_key))
@@ -206,6 +234,11 @@ class Pump:
                 ))
 
                 step = steps[step_index]
+
+                if "system_action" in step:
+                    if step["system_action"] == Celebrimborg.exit:
+                        print("Exiting Celebrimborg as expected.")
+                        break
 
                 # REDIS DB HANDLING
                 if "redis" in step:
@@ -412,7 +445,7 @@ class Pump:
                                     continue
 
                             if suscription.value == Suscription.subscribeNewToken.value:
-                                move_to_next_step = self.new_token_suscription(msg=msg)
+                                move_to_next_step = self.new_token_suscription(msg=msg, step=step, redisdb=redisdb)
 
                             if suscription.value == Suscription.subscribeTokenTrade.value:
                                 # Getting the mint address we'll work with
@@ -458,81 +491,77 @@ class Pump:
                             move_to_next_step = False
                             break
 
-                    # # MAIN WEBSOCKET THREAD
-                    # async for message in websocket:
-                    #     msg = json.loads(message)
-                    #     move_to_next_step = False
-
-                    #     # This is the first message we get when we connect
-                    #     if "message" in msg:
-                    #         print(msg["message"])
-                    #         # If the message is about unsibscribing, then we move on to the next step
-                    #         if suscription.value == Suscription.unsubscribeTokenTrade.value and "unsubscribed" in msg["message"].lower():
-                    #             move_to_next_step = True
-                    #         else:
-                    #             continue
-
-                    #     if suscription.value == Suscription.subscribeNewToken.value:
-                    #         move_to_next_step = self.new_token_suscription(msg=msg)
-
-                    #     if suscription.value == Suscription.subscribeTokenTrade.value:
-                    #         # Getting the mint address we'll work with
-                    #         mint = msg["mint"]
-
-                    #         # We'll not pay attention to closed token trades
-                    #         if self.tokens[mint]["is_closed"]:
-                    #             continue
-
-                    #         if "trades" not in self.tokens[mint]:
-                    #             self.tokens[mint]["trades"] = []
-
-                    #         # Doing some analytics like how many continuous buys have happend, etc
-                    #         new_msg = trading_analytics(
-                    #             msg=msg,
-                    #             previous_trades=self.tokens[mint]["trades"],
-                    #             amount_traded=self.trading_amount,
-                    #             pubkey=self.keypair.pubkey(),
-                    #             traders=self.tokens[mint]["track_traders"] if "track_traders" in self.tokens[mint] else []
-                    #         )
-                    #         # Including last message with new metadata into trades list
-                    #         self.tokens[mint]["trades"].append(new_msg)
- 
-                    #         move_to_next_step, criteria = self.validate_criteria(
-                    #             msg=new_msg,
-                    #             criteria=step["criteria"]
-                    #         )
-                    #         # Including exit criteria in token for further analytics
-                    #         self.tokens[mint]["exit_criteria"] = criteria
-
-                    #     # Moving to the next step
-                    #     if move_to_next_step:
-                    #         step_index += 1
-                    #         move_to_next_step = False
-                    #         break
-
-
                 # TODO: add a safely exit way of ending the program
 
 
-    def new_token_suscription(self, msg: str) -> bool:
-        if "initialBuy" in msg and int(msg["initialBuy"]) > self.min_initial_buy:
-            # Listening to a predefined amount of tokens
-            if len(self.tokens) < self.tokens_to_be_traded:
-                print(
-                    "New token subscription. Symbol: {}. mint: {}. tarder: {}. Initial buy: {}".format(
-                        msg["symbol"],
-                        msg["mint"],
-                        msg["traderPublicKey"][:5],
-                        int(msg["initialBuy"])
-                    )
-                )
-                self.clear_tokens()  # TODO: Change this when more than one token will be checked
-                self.add_update_token(token=msg["mint"])
-                # testing
-                # self.marketMaking(token=msg["mint"])
+    def new_token_suscription(self, msg: str, step: Dict, redisdb=RedisDB) -> bool:
+
+        move_to_next_step = False
+    
+        if self.scanner_start_time is None:
+            self.start_scanner()
+
+        scanner_activity_time = appconfig.SCANNER_WORKING_TIME
+        if "scanner_activity_time" in step["criteria"]:
+            scanner_activity_time = step["criteria"]["scanner_activity_time"]
+
+        # Check if scanner needs to be torned off.
+        if (datetime.now() - self.scanner_start_time).total_seconds() >= scanner_activity_time:
+            move_to_next_step = True
+            return move_to_next_step
+
+        min_initial_buy = self.min_initial_buy
+        if "min_initial_buy" in step["criteria"]:
+            min_initial_buy = step["criteria"]["min_initial_buy"]
+        
+        capacity = appconfig.SCANNER_WRITTING_CAPACITY
+        if "action" in step and "criteria" in step["action"]:
+            if "capacity" in step["action"]["criteria"]:
+                capacity = step["action"]["criteria"]["capacity"]
+        
+        trading_amount = appconfig.SCANNER_TRADING_AMOUNT
+        if "trading_amount" in step["criteria"]:
+            trading_amount = step["criteria"]["trading_amount"]
+
+        trader = Trader.sniper.value        # Sniper as default trader. We can scann for Analytics
+        if "trader" in step["criteria"]:
+            trader = step["criteria"]["trader"]
+
+        initial_buy_sols = initial_buy_calculator(sol_in_bonding_curve=msg["vSolInBondingCurve"])
+
+        if initial_buy_sols >= min_initial_buy:
+            if "action" in step and "redis" in step["action"]:
+                if step["action"]["redis"] == Redis.saveToken:
+                    # Read if there's any unchecked token based on reading capacity
+                    tokens = redisdb.get_fresh_tokens(
+                        trader=Trader.sniper
+                    )      
+
+                    unchecked_tokens = [token for token in tokens if not token["is_checked"]]
+                    # capacity reached: no more tokens will be added to redis
+                    if len(unchecked_tokens) >= capacity:
+                        return move_to_next_step
+                    # Scanner has capacity to ad more tokens to readis
+                    for i in range(capacity - len(unchecked_tokens)):
+                        token_data = {
+                            "amount": trading_amount,
+                            "is_checked": False,
+                            "is_traded": False,
+                            "is_closed": False,
+                            "timestamp": datetime.now().timestamp(),
+                            "trader": trader
+                        }
+                        token_data.update(msg)
+                        print("Saving in redis-> Token '{}', mint {} and initial buy of {}".format(
+                            token_data["name"],
+                            token_data["mint"],
+                            initial_buy_sols
+                        ))
+                        redisdb.set_token(token=msg["mint"], token_data=token_data)
+                
 
         # TODO: relase tokens to snipers with redis recods. At this moment we're listening to one token only
-        return len(self.tokens) == self.tokens_to_be_traded
+        return move_to_next_step
 
 
     def token_copytrade_suscription(self, msg: str) -> bool:
@@ -589,7 +618,6 @@ class Pump:
 
         return is_valid, exit_criteria
         
-
 
     def trade(self, txtype: TxType, token: str, keypair: Keypair, amount: float = None) -> str:
         """

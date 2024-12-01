@@ -7,15 +7,6 @@ from bot.libs.utils import TxType, Path, Trader
 from typing import List, Dict
 
 
-# Connect to Redis
-client = redis.StrictRedis(
-    host=appconfig.REDIS_HOST,
-    port=appconfig.REDIS_PORT,
-    decode_responses=True
-)
-
-# Use SCAN to find keys with "Key*" prefix
-
 class RedisDB:
     key_prefix = "token"
     index_name = "token_idx"
@@ -82,13 +73,13 @@ class RedisDB:
         # query = Query('@is_traded:[0 0]').paging(0, 1000)
         # results = self.search_client.search(query)
         for key in token_keys:
-            data = client.json().get(key)
+            data = self.client.json().get(key)
             if not data:
                 continue
 
             # Extract and validate fields
             is_checked = data.get("is_checked", False)
-            #is_traded = data.get("is_traded", False)
+
             trader_match = data.get("trader", "unknown") == trader.value
 
             if not is_checked and trader_match:
@@ -101,7 +92,7 @@ class RedisDB:
                     "is_checked": is_checked,               # By default is_checked is False.
                     "timestamp": data["timestamp"],         # Getting timestamp from redis
                     "name": data["name"],                   # Token name
-                    "ticker": data["ticker"],               # Token's Ticker
+                    "symbol": data["symbol"],               # Token's symbol
                     "track_traders": track_traders          # Tracking other traders activity
                 }
                 tokens.append(token)
@@ -158,7 +149,7 @@ class RedisDB:
         data.update(new_data)
 
         # Add or update the fields in the existing token
-        client.json().set(key, Path.rootPath(), data)
+        self.client.json().set(key, Path.rootPath(), data)
 
         # Returning original token data with new data
         token.update(new_data)
@@ -170,7 +161,7 @@ def test_create_record(mint_address: str):
     is_traded = False
     token_data = {
         "name": "Some Day",
-        "ticker": "SMD",
+        "symbol": "SMD",
         "amount": 15.500,
         "is_traded": is_traded,
         "timestamp": datetime.now().timestamp(),
