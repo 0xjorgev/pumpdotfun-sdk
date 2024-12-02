@@ -127,7 +127,7 @@ class RedisDB:
                 "checked_time": trading_time,
                 "is_checked": True,
                 "is_traded": False,
-                "is_closed": False,
+                "is_closed": is_closed,
                 "trades": []                    # We'll keep track of every buy/sell during our trade
             }
         else:

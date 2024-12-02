@@ -51,8 +51,12 @@ CONFIG GET notify-keyspace-events
 docker stop redis-stack
 docker start redis-stack
 #########################################################
-
-
-
+REDIS
 JSON.SET token:12345 $ '[{"amount":500,"timestamp":1690228321,"is_traded":0}]' 
 FT.CREATE token_idx ON JSON PREFIX 1 "token:" SCHEMA $.amount NUMERIC $.timestamp NUMERIC $.is_traded BOOL
+
+# RUN LOCALLY
+PYTHONPATH=/Users/saulmaldonado/Documents/projects/pumpdotfun-sdk python3 main.py
+PYTHONPATH=/ python3 main.py
+docker build -t celebrinborg-scanner .
+docker run -it --name python-bot-container --network host celebrinborg-scanner /bin/bash

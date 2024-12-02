@@ -92,7 +92,7 @@ class TradeRoadmap:
             "subscription": Suscription.subscribeNewToken,
             "criteria": {
                 "min_initial_buy": 1.50,        # Filter: we'll trade tokens with this initial buying amount at least.
-                "scanner_activity_time": 60,    # How much time the scanner will be working. -1 is always
+                "scanner_activity_time": -1,    # How much time the scanner will be working. -1 is always
                 "trade_amount": 1.00,           # Amount to be traded by snipers
                 "trader": Trader.sniper.value   # Who will trade the tokens
             },
@@ -237,7 +237,7 @@ class Pump:
 
                 if "system_action" in step:
                     if step["system_action"] == Celebrimborg.exit:
-                        print("Exiting Celebrimborg as expected.")
+                        print("Exiting Celebrimborg as expected after reaching timeout.")
                         break
 
                 # REDIS DB HANDLING
@@ -279,8 +279,10 @@ class Pump:
                                             token["name"]
                                         ))
                                         continue
+
+                                    enough_balance = self.balance >= amount
                                     # Checking wallet's balance before trading                  
-                                    if self.balance >= amount:
+                                    if enough_balance:
                                         self.trading_amount = amount
                                     else:
                                         print("{}: Warning: susbscribe -> Not enough balance for Token {} and amount {}. Balance is {}".format(
@@ -290,14 +292,19 @@ class Pump:
                                             self.balance
                                         ))
                                         if appconfig.APPMODE in [AppMode.dummy.value, AppMode.simulation.value]:
-                                            continue
+                                            self.trading_amount = amount
                                         else:
-                                            break
-                                    
+                                            # TODO: send an alert message to redis notifying having not enough balance
+                                            print("{}: Sending message notifying that there's not enough balance for trading".format(
+                                                self.executor_name
+                                            ))
+
                                     # - move to next step and update the token as being checked
+                                    # Also closing the token if there's not enough balance for trading
                                     token = redisdb.update_token(
                                         token=token,
-                                        is_checked=False
+                                        is_checked=False,
+                                        is_closed=not enough_balance
                                     )
                                     self.add_update_token(token=token)
 
@@ -326,6 +333,14 @@ class Pump:
                 if "action" in step:
                     if step["action"] == TxType.buy:
                         for mint_address, token_data in self.tokens.items():
+                            buy_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
+                            url = "https://pump.fun/coin/{}".format(mint_address)
+                            print("Buy {} at {}".format(url, buy_time))
+                            # We can trade closed tokens. This might happen if there's not enough balabnce
+                            if token_data["is_closed"]:
+                                print("  Can't buy {} as this token is closed".format(url))
+                                continue
+    
                             txn = self.trade(
                                 txtype=TxType.buy,
                                 token=mint_address,
@@ -353,11 +368,15 @@ class Pump:
                             # Update token
                             self.add_update_token(token=token_updated)
 
-                            step_index += 1
-                        continue
+                        step_index += 1
 
                     if step["action"] == TxType.sell:
                         for mint_address, token_data in self.tokens.items():
+                            sell_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
+                            print("Sell {} at {}".format(url, sell_time))
+                            if token_data["is_closed"]:
+                                continue
+
                             txn = self.trade(
                                 txtype=TxType.buy,
                                 token=mint_address,
@@ -390,8 +409,8 @@ class Pump:
                             # Update token
                             self.add_update_token(token=token_updated)
 
-                            step_index += 1
-                        continue
+                        step_index += 1
+
 
                 if "subscription" in step:
                     suscription = step["subscription"]
@@ -505,8 +524,9 @@ class Pump:
         if "scanner_activity_time" in step["criteria"]:
             scanner_activity_time = step["criteria"]["scanner_activity_time"]
 
-        # Check if scanner needs to be torned off.
-        if (datetime.now() - self.scanner_start_time).total_seconds() >= scanner_activity_time:
+        # Check if scanner needs to be torned off. scanner_activity_time == -1 -> runs forever.
+        if (datetime.now() - self.scanner_start_time).total_seconds() >= scanner_activity_time and \
+            scanner_activity_time != -1:
             move_to_next_step = True
             return move_to_next_step
 
@@ -552,7 +572,9 @@ class Pump:
                             "trader": trader
                         }
                         token_data.update(msg)
-                        print("Saving in redis-> Token '{}', mint {} and initial buy of {}".format(
+                        save_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
+                        print("Redis {}:-> Token '{}', mint {} and initial buy of {}".format(
+                            save_time,
                             token_data["name"],
                             token_data["mint"],
                             initial_buy_sols

@@ -14,6 +14,8 @@ class AuthConfig:
     ENVIRONMENT = os.environ.get("ENVIRONMENT", "local")
     APPMODE = os.environ.get("APPMODE", AppMode.dummy.value)
 
+    TIME_FORMAT = "%b %-d %-I:%M:%S %p"
+
     # Stable and liquid pairs: 0.1% to 0.5%.
     # Moderate trading volumes: 0.5% to 1%.
     # High volatility or limited liquidity: 1% to 3%
@@ -54,7 +56,7 @@ class AuthConfig:
     SCANNER_MIN_TRADING_AMOUNT = 1.00       # Min Sols a token must have as first buy to be considered for trading
     SCANNER_WRITTING_CAPACITY = 1           # How many tokens to scanned will write at the same time in Redis
     SCANNER_TRADING_AMOUNT = 1.00           # Sols the sniper will trade
-    SCANNER_WORKING_TIME = 60               # Seconds the scanner will be working
+    SCANNER_WORKING_TIME = 600               # Seconds the scanner will be working
     SCANNER_PUMPDONTFUN_INITIAL_FUND = 30   # Sols placed by pump.fun to launch a token
     #DB
     REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
