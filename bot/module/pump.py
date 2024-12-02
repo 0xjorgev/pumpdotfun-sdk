@@ -6,6 +6,7 @@ import time
 import websockets
 import ssl
 import certifi
+import websockets.exceptions
 
 from bot.libs.criterias import (
     trading_analytics,
@@ -28,7 +29,7 @@ from bot.libs.utils import (
 from bot.config import appconfig, AppMode
 from bot.domain.redis_db import RedisDB
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from solders.transaction import VersionedTransaction
 from solders.keypair import Keypair
@@ -88,12 +89,20 @@ class TradeRoadmap:
     scanner = [
         {
             "step": 0,
+            "name": "START_SCANNER",
+            "system_action": Celebrimborg.start,
+            "criteria": {
+                "scanner_activity_time": 60,    # How much time the scanner will be working. -1 is always
+            },
+        },
+        {
+            "step": 1,
             "name": "SCANNER",
             "subscription": Suscription.subscribeNewToken,
             "criteria": {
                 "min_initial_buy": 1.50,        # Filter: we'll trade tokens with this initial buying amount at least.
                 "scanner_activity_time": -1,    # How much time the scanner will be working. -1 is always
-                "trade_amount": 1.00,           # Amount to be traded by snipers
+                "trading_amount": 1.00,         # Amount to be traded by snipers
                 "trader": Trader.sniper.value   # Who will trade the tokens
             },
             "action":{
@@ -104,11 +113,22 @@ class TradeRoadmap:
                 }
             }
         },
-        {"step": 1, "name": "exit", "system_action": Celebrimborg.exit},
+        {"step": 2, "name": "exit", "system_action": Celebrimborg.exit},
     ]
     sniper_1 = [
-        {"step": 0, "name": "WAIT_FOR_TOKEN", "redis": Redis.readToken},
-        {"step": 1, "name": "TRADE_TOKEN_BUY", "action": TxType.buy},
+        {
+            "step": 0,
+            "name": "WAIT_FOR_TOKEN",
+            "redis": Redis.readToken,
+            "criteria": {
+                "use_all_balance": True # If True, all balance will be used if balance < trading amount
+            }
+        },
+        {
+            "step": 1,
+            "name": "TRADE_TOKEN_BUY",
+            "action": TxType.buy
+        },
         {
             "step": 2,
             "name": "TOKEN_SUBSCRIPTION",
@@ -157,6 +177,8 @@ class Pump:
         self.balance = self.get_balance(public_key=self.keypair.pubkey())
 
         self.scanner_start_time = None
+        self.scanner_activity_time = appconfig.SCANNER_WORKING_TIME
+        self.stop_app = False
 
     def start_scanner(self):
         self.scanner_start_time = datetime.now()
@@ -166,11 +188,14 @@ class Pump:
         return balance
 
     def get_tkn_balance(self, wallet_pubkey, token_account):
-        token_balance = asyncio.run(get_own_token_balance(
-                wallet_pubkey=wallet_pubkey,
-                token_mint_addres=token_account
-            )
-        )
+        # token_balance = asyncio.run(get_own_token_balance(
+        #         wallet_pubkey=wallet_pubkey,
+        #         token_mint_addres=token_account
+        #     )
+        # )
+        # TODO: get balance from redis
+        # BYPASS
+        token_balance = 0
         return token_balance
 
     def add_account(self, account: str):
@@ -218,300 +243,338 @@ class Pump:
         redisdb = RedisDB()
         await asyncio.sleep(2)  # Wait 2 seconds for the redis connection to start
 
-        # SSL context is required in Mac and not on windows
-        async with websockets.connect(self.uri_data, ssl=self.ssl_context) as websocket:
-            # Subscribing to token creation events
-            while True:
-                # Step index reset if necessary
-                step_index = 0 if step_index >= len(steps) else step_index
-                roadmap_name = steps[step_index]["name"]
-                if step_index == 0:
-                    print("subscribe -> restarting roadmap '{}'".format(roadmap_name))
-                    
-                print("Step {}: {}".format(
-                    step_index,
-                    steps[step_index]["name"]
-                ))
-
-                step = steps[step_index]
-
-                if "system_action" in step:
-                    if step["system_action"] == Celebrimborg.exit:
-                        print("Exiting Celebrimborg as expected after reaching timeout.")
-                        break
-
-                # REDIS DB HANDLING
-                if "redis" in step:
-                    # Listen to redis change
-                    redisdb.subscribe()
-                    if step["redis"] == Redis.readToken:
-                        # TODO: Solve BUG: redis listener is not working at the second time
-                        for message in redisdb.pubsub.listen():
-                            if message["type"] == "psubscribe":
-                                print("Subscribed to redis")
-
-                            if message["type"] == "pmessage":
-                                # Parse the message
-                                key = ":".join(message["channel"].split(":")[1:])
-                                # Get token information: Take key and retrieve token from redis
-                                tokens = redisdb.get_fresh_tokens(
-                                    trader=Trader.sniper,
-                                    mint_address=key
-                                )
-                                # - Ignore token that are not fresh or for not the current trader type
-                                if not tokens:
-                                    continue
-                                # Snipe against many tokens
-                                how_many = appconfig.TRADING_TOKENS_AT_THE_SAME_TIME
-                                if len(tokens) < appconfig.TRADING_TOKENS_AT_THE_SAME_TIME:
-                                    how_many = len(tokens)
-
-                                for token in tokens[0: how_many]:
-                                    mint = token["mint"]
-                                    amount = token["amount"]
-
-                                    # FILTERING BY TOKEN'S CREATION TIME
-                                    token_creation_time = datetime.fromtimestamp(token["timestamp"])
-                                    token_age = (datetime.now() - token_creation_time).total_seconds()
-                                    if token_age >= appconfig.TRADING_TOKEN_TOO_OLD_SECONDS and \
-                                        appconfig.APPMODE not in [AppMode.dummy.value, AppMode.simulation.value]:
-                                        print("Warning: susbscribe -> Token {} is too old for trading.".format(
-                                            token["name"]
-                                        ))
-                                        continue
-
-                                    enough_balance = self.balance >= amount
-                                    # Checking wallet's balance before trading                  
-                                    if enough_balance:
-                                        self.trading_amount = amount
-                                    else:
-                                        print("{}: Warning: susbscribe -> Not enough balance for Token {} and amount {}. Balance is {}".format(
-                                            self.executor_name,
-                                            mint,
-                                            amount,
-                                            self.balance
-                                        ))
-                                        if appconfig.APPMODE in [AppMode.dummy.value, AppMode.simulation.value]:
-                                            self.trading_amount = amount
-                                        else:
-                                            # TODO: send an alert message to redis notifying having not enough balance
-                                            print("{}: Sending message notifying that there's not enough balance for trading".format(
-                                                self.executor_name
-                                            ))
-
-                                    # - move to next step and update the token as being checked
-                                    # Also closing the token if there's not enough balance for trading
-                                    token = redisdb.update_token(
-                                        token=token,
-                                        is_checked=False,
-                                        is_closed=not enough_balance
-                                    )
-                                    self.add_update_token(token=token)
-
-                                    print("Token {}:{} assigned to {} to trade {}Sols".format(
-                                        token["name"],
-                                        token["mint"],
-                                        self.executor_name,
-                                        self.trading_amount
-                                    ))
-                                
-                                tokens_to_trade = any(token for token in tokens if token["is_checked"])
-
-                                # Safely unsubscribing from current channel listening
-                                if tokens_to_trade:
-                                    redisdb.unsubscribe()
-                                    break
-
-                        step_index += 1
-                        continue
-
-                    if step["redis"] == Redis.closeToken:
-                        self.remove_token(token=self.tokens[mint])
-                        step_index += 1
-                        continue
-                
-                if "action" in step:
-                    if step["action"] == TxType.buy:
-                        for mint_address, token_data in self.tokens.items():
-                            buy_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
-                            url = "https://pump.fun/coin/{}".format(mint_address)
-                            print("Buy {} at {}".format(url, buy_time))
-                            # We can trade closed tokens. This might happen if there's not enough balabnce
-                            if token_data["is_closed"]:
-                                print("  Can't buy {} as this token is closed".format(url))
-                                continue
-    
-                            txn = self.trade(
-                                txtype=TxType.buy,
-                                token=mint_address,
-                                keypair=self.keypair,
-                                amount=self.trading_amount
-                            )
-                            # Get the token balance in wallet
-                            token_balance = self.get_tkn_balance(
-                                wallet_pubkey=self.keypair.pubkey(),
-                                token_account=mint_address
-                            )
-
-                            self.tokens[mint_address]["token_balance"] = token_balance
-
-                            # Update token record in redis
-                            token_updated = redisdb.update_token(
-                                token=token_data,
-                                txn=txn,
-                                action=TxType.buy,
-                                amount=self.trading_amount,
-                                trader=self.trader_type,
-                                balance=self.balance,
-                                token_balance=token_balance
-                            )
-                            # Update token
-                            self.add_update_token(token=token_updated)
-
-                        step_index += 1
-
-                    if step["action"] == TxType.sell:
-                        for mint_address, token_data in self.tokens.items():
-                            sell_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
-                            print("Sell {} at {}".format(url, sell_time))
-                            if token_data["is_closed"]:
-                                continue
-
-                            txn = self.trade(
-                                txtype=TxType.buy,
-                                token=mint_address,
-                                keypair=self.keypair,
-                                amount=None             # Amount will be handled buy trade function
-                            )
-                            # Update wallet balance after selling
-                            self.get_balance(public_key=self.keypair.pubkey())
-
-                            # Get the token balance in wallet
-                            # Note: although we're selling 100% of tokens we might sell a % of tokens
-                            #       in the future and that's way we get the token balance when selling
-                            token_balance = self.get_tkn_balance(
-                                wallet_pubkey=self.keypair.pubkey(),
-                                token_account=mint_address
-                            )
-                            # Update token record in redis
-                            token_updated = redisdb.update_token(
-                                token=token_data,
-                                txn=txn,
-                                action=TxType.sell,
-                                amount=self.trading_amount,
-                                trader=self.trader_type,
-                                is_closed=True,
-                                balance=self.balance,
-                                token_balance=token_balance,
-                                trades=self.tokens[mint]["trades"]
-                            )
-
-                            # Update token
-                            self.add_update_token(token=token_updated)
-
-                        step_index += 1
-
-
-                if "subscription" in step:
-                    suscription = step["subscription"]
-
-                    payload = {
-                        "method": suscription.value,
-                    }
-
-                    websocket_timeout = appconfig.TRADING_MARKETING_INACTIVITY_TIMEOUT
-                    if "criteria" in step:
-                        if "market_inactivity" in step["criteria"]:
-                            websocket_timeout = step["criteria"]["market_inactivity"]
-
-                    if suscription.value == Suscription.subscribeAccountTrade.value:
-                        payload["keys"] = self.accounts
-
-                    if suscription.value == Suscription.subscribeTokenTrade.value:
-                        payload["keys"] = [mint for mint, _ in self.tokens.items() if self.tokens[mint]["is_checked"] and self.tokens[mint]["is_traded"]]
-
-                    if suscription.value == Suscription.unsubscribeTokenTrade.value:
-                        payload["keys"] = [mint for mint, _ in self.tokens.items() if self.tokens[mint]["is_closed"]]
-
-                    await websocket.send(json.dumps(payload))
-
-                    #####################
-                    # ADD HERE THE BUYING TRADEs in separate threads and fix the step so Buy and Sell are inside subscription
-                    # NOTE: test buy and sell in real before having them in threads
-                    #####################
-                    for mint, token_data in self.tokens.items():
-                         if not self.tokens[mint]["is_traded"] and \
-                            self.tokens[mint]["is_checked"] and \
-                            not self.tokens[mint]["is_closed"]:
-                            pass
-                    
+        # Keepalive main loop
+        while not self.stop_app:
+            try:
+                # SSL context is required in Mac and not on windows
+                async with websockets.connect(self.uri_data, ssl=self.ssl_context) as websocket:
+                    # Handle WebSocket communication
                     while True:
-                        try:
-                            message = await asyncio.wait_for(
-                                websocket.recv(),
-                                timeout=websocket_timeout
-                            )
-                            msg = json.loads(message)
-                            move_to_next_step = False
+                        # Step index reset if necessary
+                        step_index = 0 if step_index >= len(steps) else step_index
+                        roadmap_name = steps[step_index]["name"]
+                        if step_index == 0:
+                            print("subscribe -> restarting roadmap '{}'".format(roadmap_name))
+                            
+                        print("Step {}: {}".format(
+                            step_index,
+                            steps[step_index]["name"]
+                        ))
 
-                            # This is the first message we get when we connect
-                            if "message" in msg:
-                                print(msg["message"])
-                                # If the message is about unsibscribing, then we move on to the next step
-                                if suscription.value == Suscription.unsubscribeTokenTrade.value and "unsubscribed" in msg["message"].lower():
-                                    move_to_next_step = True
-                                else:
-                                    continue
+                        step = steps[step_index]
 
-                            if suscription.value == Suscription.subscribeNewToken.value:
-                                move_to_next_step = self.new_token_suscription(msg=msg, step=step, redisdb=redisdb)
-
-                            if suscription.value == Suscription.subscribeTokenTrade.value:
-                                # Getting the mint address we'll work with
-                                mint = msg["mint"]
-
-                                # We'll not pay attention to closed token trades
-                                if self.tokens[mint]["is_closed"]:
-                                    continue
-
-                                if "trades" not in self.tokens[mint]:
-                                    self.tokens[mint]["trades"] = []
-
-                                # Doing some analytics like how many continuous buys have happend, etc
-                                new_msg = trading_analytics(
-                                    msg=msg,
-                                    previous_trades=self.tokens[mint]["trades"],
-                                    amount_traded=self.trading_amount,
-                                    pubkey=self.keypair.pubkey(),
-                                    traders=self.tokens[mint]["track_traders"] if "track_traders" in self.tokens[mint] else []
-                                )
-                                # Including last message with new metadata into trades list
-                                self.tokens[mint]["trades"].append(new_msg)
-    
-                                move_to_next_step, criteria = self.validate_criteria(
-                                    msg=new_msg,
-                                    criteria=step["criteria"]
-                                )
-                                # Including exit criteria in token for further analytics
-                                self.tokens[mint]["exit_criteria"] = criteria
-
-                            # Moving to the next step
-                            if move_to_next_step:
+                        if "system_action" in step:
+                            if step["system_action"] == Celebrimborg.start:
+                                # Applying starting criterias
+                                if "scanner_activity_time" in step["criteria"]:
+                                    self.scanner_activity_time = step["criteria"]["scanner_activity_time"]
+                                
+                                start_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
+                                print("Start at {} ".format(
+                                    start_time
+                                ))
+                                stop_time = datetime.now() + timedelta(seconds=self.scanner_activity_time)
+                                stop_time = stop_time.strftime(appconfig.TIME_FORMAT).lower()
+                                stop_time = "Never" if self.scanner_activity_time == -1 else stop_time
+                                print("Expected stop at {} ".format(
+                                    stop_time
+                                ))
                                 step_index += 1
-                                move_to_next_step = False
+                                continue
+
+                            if step["system_action"] == Celebrimborg.exit:
+                                self.stop_app = True
+                                print("Exiting Celebrimborg as expected after reaching timeout.")
                                 break
 
-                        except asyncio.TimeoutError:
-                            print("No trades detected during {} seconds. Moving to next step.".format(
-                                websocket_timeout
-                            ))
-                            self.tokens[mint]["exit_criteria"] = "market_inactivity"
-                            step_index += 1
-                            move_to_next_step = False
-                            break
+                        # REDIS DB HANDLING
+                        if "redis" in step:
+                            # Listen to redis change
+                            redisdb.subscribe()
+                            if step["redis"] == Redis.readToken:
+                                for message in redisdb.pubsub.listen():
+                                    if message["type"] == "psubscribe":
+                                        print("Subscribed to redis")
 
-                # TODO: add a safely exit way of ending the program
+                                    if message["type"] == "pmessage":
+                                        # Parse the message
+                                        key = ":".join(message["channel"].split(":")[1:])
+                                        # Get token information: Take key and retrieve token from redis
+                                        tokens = redisdb.get_fresh_tokens(
+                                            trader=Trader.sniper,
+                                            mint_address=key
+                                        )
+                                        # - Ignore token that are not fresh or for not the current trader type
+                                        if not tokens:
+                                            continue
+                                        # Snipe against many tokens
+                                        how_many = appconfig.TRADING_TOKENS_AT_THE_SAME_TIME
+                                        if len(tokens) < appconfig.TRADING_TOKENS_AT_THE_SAME_TIME:
+                                            how_many = len(tokens)
 
+                                        for token in tokens[0: how_many]:
+                                            mint = token["mint"]
+                                            amount = token["amount"]
+
+                                            # FILTERING BY TOKEN'S CREATION TIME
+                                            token_creation_time = datetime.fromtimestamp(token["timestamp"])
+                                            token_age = (datetime.now() - token_creation_time).total_seconds()
+                                            if token_age >= appconfig.TRADING_TOKEN_TOO_OLD_SECONDS and \
+                                                appconfig.APPMODE not in [AppMode.dummy.value, AppMode.simulation.value]:
+                                                print("Warning: susbscribe -> Token {} is too old for trading.".format(
+                                                    token["name"]
+                                                ))
+                                                continue
+
+                                            enough_balance = self.balance >= amount
+                                            # Checking wallet's balance before trading                  
+                                            if enough_balance:
+                                                self.trading_amount = amount
+                                            else:
+                                                # Checking if we are allowed to use all balance
+                                                if "criteria" in step and "use_all_balance" in step["criteria"]:
+                                                    if step["criteria"]["use_all_balance"]:
+                                                        self.trading_amount = self.balance
+                                                        enough_balance = True
+
+                                                print("{}: Warning: susbscribe -> Not enough balance for Token {} and amount {}. Balance is {}".format(
+                                                    self.executor_name,
+                                                    mint,
+                                                    amount,
+                                                    self.balance
+                                                ))
+                                                if appconfig.APPMODE in [AppMode.dummy.value, AppMode.simulation.value]:
+                                                    self.trading_amount = amount
+                                                else:
+                                                    # TODO: send an alert message to redis notifying having not enough balance
+                                                    print("{}: Sending message notifying that there's not enough balance for trading".format(
+                                                        self.executor_name
+                                                    ))
+
+                                            # - move to next step and update the token as being checked
+                                            # Also closing the token if there's not enough balance for trading
+                                            token = redisdb.update_token(
+                                                token=token,
+                                                is_checked=False,
+                                                is_closed=not enough_balance
+                                            )
+                                            self.add_update_token(token=token)
+
+                                            print("Token {}:{} assigned to {} to trade {}Sols".format(
+                                                token["name"],
+                                                token["mint"],
+                                                self.executor_name,
+                                                self.trading_amount
+                                            ))
+                                        
+                                        tokens_to_trade = any(token for token in tokens if token["is_checked"])
+
+                                        # Safely unsubscribing from current channel listening
+                                        if tokens_to_trade:
+                                            redisdb.unsubscribe()
+                                            break
+
+                                step_index += 1
+                                continue
+
+                            if step["redis"] == Redis.closeToken:
+                                self.remove_token(token=self.tokens[mint])
+                                step_index += 1
+                                continue
+                        
+                        if "action" in step:
+                            if step["action"] == TxType.buy:
+                                for mint_address, token_data in self.tokens.items():
+                                    buy_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
+                                    url = "https://pump.fun/coin/{}".format(mint_address)
+                                    print("Buy at {} on {}".format(buy_time, url))
+                                    # We can trade closed tokens. This might happen if there's not enough balabnce
+                                    if token_data["is_closed"]:
+                                        print("  Can't buy {} as this token is closed".format(url))
+                                        continue
+            
+                                    txn = self.trade(
+                                        txtype=TxType.buy,
+                                        token=mint_address,
+                                        keypair=self.keypair,
+                                        amount=self.trading_amount
+                                    )
+                                    # Get the token balance in wallet
+                                    token_balance = self.get_tkn_balance(
+                                        wallet_pubkey=self.keypair.pubkey(),
+                                        token_account=mint_address
+                                    )
+
+                                    self.tokens[mint_address]["token_balance"] = token_balance
+
+                                    # Update token record in redis
+                                    token_updated = redisdb.update_token(
+                                        token=token_data,
+                                        txn=txn,
+                                        action=TxType.buy,
+                                        amount=self.trading_amount,
+                                        trader=self.trader_type,
+                                        balance=self.balance,
+                                        token_balance=token_balance
+                                    )
+                                    # Update token
+                                    self.add_update_token(token=token_updated)
+
+                                step_index += 1
+
+                            if step["action"] == TxType.sell:
+                                for mint_address, token_data in self.tokens.items():
+                                    sell_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
+                                    print("Sell {} at {}".format(url, sell_time))
+                                    if token_data["is_closed"]:
+                                        continue
+
+                                    txn = self.trade(
+                                        txtype=TxType.buy,
+                                        token=mint_address,
+                                        keypair=self.keypair,
+                                        amount=None             # Amount will be handled buy trade function
+                                    )
+                                    # Update wallet balance after selling
+                                    self.get_balance(public_key=self.keypair.pubkey())
+
+                                    # Get the token balance in wallet
+                                    # Note: although we're selling 100% of tokens we might sell a % of tokens
+                                    #       in the future and that's way we get the token balance when selling
+                                    token_balance = self.get_tkn_balance(
+                                        wallet_pubkey=self.keypair.pubkey(),
+                                        token_account=mint_address
+                                    )
+                                    # Update token record in redis
+                                    token_updated = redisdb.update_token(
+                                        token=token_data,
+                                        txn=txn,
+                                        action=TxType.sell,
+                                        amount=self.trading_amount,
+                                        trader=self.trader_type,
+                                        is_closed=True,
+                                        balance=self.balance,
+                                        token_balance=token_balance,
+                                        trades=self.tokens[mint]["trades"]
+                                    )
+
+                                    # Update token
+                                    self.add_update_token(token=token_updated)
+
+                                step_index += 1
+
+
+                        if "subscription" in step:
+                            suscription = step["subscription"]
+
+                            payload = {
+                                "method": suscription.value,
+                            }
+
+                            websocket_timeout = appconfig.TRADING_MARKETING_INACTIVITY_TIMEOUT
+                            if "criteria" in step:
+                                if "market_inactivity" in step["criteria"]:
+                                    websocket_timeout = step["criteria"]["market_inactivity"]
+
+                            if suscription.value == Suscription.subscribeAccountTrade.value:
+                                payload["keys"] = self.accounts
+
+                            if suscription.value == Suscription.subscribeTokenTrade.value:
+                                payload["keys"] = [mint for mint, _ in self.tokens.items() if self.tokens[mint]["is_checked"] and self.tokens[mint]["is_traded"]]
+
+                            if suscription.value == Suscription.unsubscribeTokenTrade.value:
+                                payload["keys"] = [mint for mint, _ in self.tokens.items() if self.tokens[mint]["is_closed"]]
+
+                            await websocket.send(json.dumps(payload))
+
+                            #####################
+                            # ADD HERE THE BUYING TRADEs in separate threads and fix the step so Buy and Sell are inside subscription
+                            # NOTE: test buy and sell in real before having them in threads
+                            #####################
+                            for mint, token_data in self.tokens.items():
+                                if not self.tokens[mint]["is_traded"] and \
+                                    self.tokens[mint]["is_checked"] and \
+                                    not self.tokens[mint]["is_closed"]:
+                                    pass
+                            
+                            while True:
+                                try:
+                                    message = await asyncio.wait_for(
+                                        websocket.recv(),
+                                        timeout=websocket_timeout
+                                    )
+                                    msg = json.loads(message)
+                                    move_to_next_step = False
+
+                                    # This is the first message we get when we connect
+                                    if "message" in msg:
+                                        print(msg["message"])
+                                        # If the message is about unsibscribing, then we move on to the next step
+                                        if suscription.value == Suscription.unsubscribeTokenTrade.value and "unsubscribed" in msg["message"].lower():
+                                            move_to_next_step = True
+                                        else:
+                                            continue
+
+                                    if suscription.value == Suscription.subscribeNewToken.value:
+                                        move_to_next_step = self.new_token_suscription(msg=msg, step=step, redisdb=redisdb)
+
+                                    if suscription.value == Suscription.subscribeTokenTrade.value:
+                                        # Getting the mint address we'll work with
+                                        mint = msg["mint"]
+
+                                        # We'll not pay attention to closed token trades
+                                        if self.tokens[mint]["is_closed"]:
+                                            continue
+
+                                        if "trades" not in self.tokens[mint]:
+                                            self.tokens[mint]["trades"] = []
+
+                                        # Doing some analytics like how many continuous buys have happend, etc
+                                        new_msg = trading_analytics(
+                                            msg=msg,
+                                            previous_trades=self.tokens[mint]["trades"],
+                                            amount_traded=self.trading_amount,
+                                            pubkey=self.keypair.pubkey(),
+                                            traders=self.tokens[mint]["track_traders"] if "track_traders" in self.tokens[mint] else []
+                                        )
+                                        # Including last message with new metadata into trades list
+                                        self.tokens[mint]["trades"].append(new_msg)
+            
+                                        move_to_next_step, criteria = self.validate_criteria(
+                                            msg=new_msg,
+                                            criteria=step["criteria"]
+                                        )
+                                        # Including exit criteria in token for further analytics
+                                        self.tokens[mint]["exit_criteria"] = criteria
+
+                                    # Moving to the next step
+                                    if move_to_next_step:
+                                        step_index += 1
+                                        move_to_next_step = False
+                                        break
+
+                                except asyncio.TimeoutError:
+                                    print("No trades detected during {} seconds. Moving to next step.".format(
+                                        websocket_timeout
+                                    ))
+                                    self.tokens[mint]["exit_criteria"] = "market_inactivity"
+                                    step_index += 1
+                                    move_to_next_step = False
+                                    break
+                                except websockets.exceptions.ConnectionClosedError:
+                                    print("Connection lost, reconnecting...")
+
+                        # TODO: add a safely exit way of ending the program
+
+
+
+            except websockets.exceptions.ConnectionClosedError:
+                print("Connection lost, reconnecting...")
+                await asyncio.sleep(5)  # Wait before reconnecting
+            except Exception as e:
+                print(f"Unexpected error: {e}. Exiting program abruptly.")
+                break  # Exit on non-recoverable errors
+    
 
     def new_token_suscription(self, msg: str, step: Dict, redisdb=RedisDB) -> bool:
 
@@ -520,13 +583,9 @@ class Pump:
         if self.scanner_start_time is None:
             self.start_scanner()
 
-        scanner_activity_time = appconfig.SCANNER_WORKING_TIME
-        if "scanner_activity_time" in step["criteria"]:
-            scanner_activity_time = step["criteria"]["scanner_activity_time"]
-
         # Check if scanner needs to be torned off. scanner_activity_time == -1 -> runs forever.
-        if (datetime.now() - self.scanner_start_time).total_seconds() >= scanner_activity_time and \
-            scanner_activity_time != -1:
+        if (datetime.now() - self.scanner_start_time).total_seconds() >= self.scanner_activity_time and \
+            self.scanner_activity_time != -1:
             move_to_next_step = True
             return move_to_next_step
 
@@ -555,21 +614,32 @@ class Pump:
                     # Read if there's any unchecked token based on reading capacity
                     tokens = redisdb.get_fresh_tokens(
                         trader=Trader.sniper
-                    )      
+                    )
 
                     unchecked_tokens = [token for token in tokens if not token["is_checked"]]
                     # capacity reached: no more tokens will be added to redis
                     if len(unchecked_tokens) >= capacity:
                         return move_to_next_step
-                    # Scanner has capacity to ad more tokens to readis
-                    for i in range(capacity - len(unchecked_tokens)):
+                    # Scanner has capacity to add more tokens to readis
+                    for _ in range(capacity - len(unchecked_tokens)):
+                        
+                        # Rule of thumb: never buy more than the token's initial buy
+                        if trading_amount > initial_buy_sols:
+                            print("INFO: redis -> Amount {} was reduced to {}. Token {} initial buy is lower than expected".format(
+                                trading_amount,
+                                initial_buy_sols,
+                                "{}: {}".format(msg["name"], msg["mint"])
+                            ))
+                            trading_amount = initial_buy_sols
+
                         token_data = {
                             "amount": trading_amount,
                             "is_checked": False,
                             "is_traded": False,
                             "is_closed": False,
                             "timestamp": datetime.now().timestamp(),
-                            "trader": trader
+                            "trader": trader,
+                            "initial_buy_sols": initial_buy_sols
                         }
                         token_data.update(msg)
                         save_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()

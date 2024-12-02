@@ -26,6 +26,7 @@ class Trader(Enum):
 
 class Celebrimborg(Enum):
     exit = "exit"
+    start = "start"
 
 async def get_solana_balance(public_key: Pubkey) -> float:
     """
