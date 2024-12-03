@@ -92,7 +92,7 @@ class TradeRoadmap:
             "name": "START_SCANNER",
             "system_action": Celebrimborg.start,
             "criteria": {
-                "scanner_activity_time": 60,    # How much time the scanner will be working. -1 is always
+                "scanner_activity_time": 10,    # How much time the scanner will be working. -1 is always
             },
         },
         {
@@ -101,8 +101,7 @@ class TradeRoadmap:
             "subscription": Suscription.subscribeNewToken,
             "criteria": {
                 "min_initial_buy": 1.50,        # Filter: we'll trade tokens with this initial buying amount at least.
-                "scanner_activity_time": -1,    # How much time the scanner will be working. -1 is always
-                "trading_amount": 1.00,         # Amount to be traded by snipers
+                "trading_amount": 0.5,          # Amount to be traded by snipers
                 "trader": Trader.sniper.value   # Who will trade the tokens
             },
             "action":{
@@ -127,7 +126,8 @@ class TradeRoadmap:
         {
             "step": 1,
             "name": "TRADE_TOKEN_BUY",
-            "action": TxType.buy
+            "action": TxType.buy,
+            "on_error_go_to_step": 4
         },
         {
             "step": 2,
@@ -136,13 +136,18 @@ class TradeRoadmap:
             "criteria": {
                 "max_consecutive_buys": 2,
                 "max_consecutive_sells": 1,
-                "max_seconds_between_buys": 3,
+                "max_seconds_between_buys": 2.5,
                 "trader_has_sold": True,
                 "max_sols_in_token_after_buying_in_percentage": 100,
                 "market_inactivity": 3
             }
         },
-        {"step": 3, "name": "TRADE_TOKEN_SELL", "action": TxType.sell},
+        {
+            "step": 3,
+            "name": "TRADE_TOKEN_SELL",
+            "action": TxType.sell,
+            "on_error_go_to_step": 4
+        },
         {"step": 4, "name": "UNSUBSCRIBE_TO_TOKEN", "subscription": Suscription.unsubscribeTokenTrade},
         {"step": 5, "name": "CLOSE_TOKEN", "redis": Redis.closeToken},
     ]
@@ -226,7 +231,7 @@ class Pump:
         del self.tokens[token["mint"]]
 
     def clear_tokens(self):
-        self.tokens = []
+        self.tokens = {}
 
     # Traders to follow for starting and stoping pumps
     def add_trader(self, trader: str):
@@ -254,7 +259,7 @@ class Pump:
                         step_index = 0 if step_index >= len(steps) else step_index
                         roadmap_name = steps[step_index]["name"]
                         if step_index == 0:
-                            print("subscribe -> restarting roadmap '{}'".format(roadmap_name))
+                            print("subscribe -> restarting roadmap '{}'\n".format(roadmap_name))
                             
                         print("Step {}: {}".format(
                             step_index,
@@ -378,7 +383,8 @@ class Pump:
                                 continue
 
                             if step["redis"] == Redis.closeToken:
-                                self.remove_token(token=self.tokens[mint])
+                                for mint in list(self.tokens.keys()):
+                                    self.remove_token(token=self.tokens[mint])
                                 step_index += 1
                                 continue
                         
@@ -387,7 +393,7 @@ class Pump:
                                 for mint_address, token_data in self.tokens.items():
                                     buy_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
                                     url = "https://pump.fun/coin/{}".format(mint_address)
-                                    print("Buy at {} on {}".format(buy_time, url))
+                                    print("Buy {} at {}".format(url, buy_time))
                                     # We can trade closed tokens. This might happen if there's not enough balabnce
                                     if token_data["is_closed"]:
                                         print("  Can't buy {} as this token is closed".format(url))
@@ -399,6 +405,13 @@ class Pump:
                                         keypair=self.keypair,
                                         amount=self.trading_amount
                                     )
+
+                                    if txn is None:
+                                        if "on_error_go_to_step" in step:
+                                            # Need to point to previous step
+                                            step_index = step["on_error_go_to_step"] - 1
+                                            break
+
                                     # Get the token balance in wallet
                                     token_balance = self.get_tkn_balance(
                                         wallet_pubkey=self.keypair.pubkey(),
@@ -430,7 +443,7 @@ class Pump:
                                         continue
 
                                     txn = self.trade(
-                                        txtype=TxType.buy,
+                                        txtype=TxType.sell,
                                         token=mint_address,
                                         keypair=self.keypair,
                                         amount=None             # Amount will be handled buy trade function
@@ -455,7 +468,7 @@ class Pump:
                                         is_closed=True,
                                         balance=self.balance,
                                         token_balance=token_balance,
-                                        trades=self.tokens[mint]["trades"]
+                                        trades=self.tokens[mint_address]["trades"]
                                     )
 
                                     # Update token
@@ -520,28 +533,31 @@ class Pump:
 
                                     if suscription.value == Suscription.subscribeTokenTrade.value:
                                         # Getting the mint address we'll work with
+                                        # CHeck mint value for each tokeb being processed
                                         mint = msg["mint"]
-
                                         # We'll not pay attention to closed token trades
                                         if self.tokens[mint]["is_closed"]:
                                             continue
 
-                                        if "trades" not in self.tokens[mint]:
-                                            self.tokens[mint]["trades"] = []
-
                                         # Doing some analytics like how many continuous buys have happend, etc
                                         new_msg = trading_analytics(
                                             msg=msg,
-                                            previous_trades=self.tokens[mint]["trades"],
+                                            previous_trades=token["trades"],
                                             amount_traded=self.trading_amount,
                                             pubkey=self.keypair.pubkey(),
                                             traders=self.tokens[mint]["track_traders"] if "track_traders" in self.tokens[mint] else []
                                         )
                                         # Including last message with new metadata into trades list
-                                        self.tokens[mint]["trades"].append(new_msg)
-            
+                                        token = self.tokens[mint].copy()        # Key point: need to copy the token
+                                        if not token["trades"]:
+                                            token["trades"] = [new_msg]
+                                        else:
+                                            token["trades"].append(new_msg)
+                                        self.add_update_token(token=token)
+
                                         move_to_next_step, criteria = self.validate_criteria(
                                             msg=new_msg,
+                                            amount_traded=self.trading_amount,
                                             criteria=step["criteria"]
                                         )
                                         # Including exit criteria in token for further analytics
@@ -551,6 +567,7 @@ class Pump:
                                     if move_to_next_step:
                                         step_index += 1
                                         move_to_next_step = False
+                                        print("Exiting subscription")
                                         break
 
                                 except asyncio.TimeoutError:
@@ -561,8 +578,6 @@ class Pump:
                                     step_index += 1
                                     move_to_next_step = False
                                     break
-                                except websockets.exceptions.ConnectionClosedError:
-                                    print("Connection lost, reconnecting...")
 
                         # TODO: add a safely exit way of ending the program
 
@@ -683,7 +698,7 @@ class Pump:
         return False
 
 
-    def validate_criteria(self, msg: Dict, criteria: Dict) -> bool:
+    def validate_criteria(self, msg: Dict, amount_traded: float, criteria: Dict) -> bool:
         """
         This function takes the incomming trading message from Pump.fun previouly
         trated by trading_analytics function and apply all criteria functions for the
@@ -699,7 +714,7 @@ class Pump:
             function = getattr(criteria_functions, function_name, None)
             if callable(function):
                 # Call the function with the parameter and msg
-                is_valid = function(parameter, msg)
+                is_valid = function(parameter, msg, amount_traded)
                 print(f"validate_criteria-> Function {function_name} returned: {is_valid}")
             else:
                 print(f"validate_criteria-> Error: {function_name} not found.")
@@ -765,6 +780,15 @@ class Pump:
                     data=data
                 )
                 if response.status_code != 200:
+                    if txtype.value == TxType.buy.value:
+                        print("Trade->{} Failed get quote. Exiting trade function. Error: {} returned a status code {}.  Response: {}".format(
+                            txtype.value,
+                            appconfig.PUMPFUN_TRANSACTION_URL,
+                            response.status_code,
+                            response
+                        ))
+                        break
+                    
                     retries += 1
 
                     print("Trade->{} Error: {} returned a status code {}. Retrying again {} times. Response: {}".format(
@@ -816,6 +840,12 @@ class Pump:
 
             except Exception as e:
                 retries += 1
+                if txtype.value == TxType.buy.value:
+                    print("Trade->{} Transaction failed. Exiting trade function. Error: {}".format(
+                        txtype.value,
+                        response.json()["error"]["message"]
+                    ))
+                    break
                 print("Trade->{} Transaction failed. Retrying again {} times: {}".format(
                     txtype.value,
                     retries,

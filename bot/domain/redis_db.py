@@ -64,7 +64,7 @@ class RedisDB:
     def get_fresh_tokens(self, trader=Trader, mint_address: str = None) -> List[Dict]:
         tokens = []
         token_keys = []
-        # Search for all tokens where is_traded = False
+        # Search for all tokens where is_checked = False
         if mint_address:
             token_keys = [mint_address]
         else:

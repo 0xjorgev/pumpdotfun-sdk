@@ -1,7 +1,9 @@
 import asyncio
 import logging
+from datetime import datetime, timedelta
 from module.pump import Pump, TradeRoadmap
 from bot.libs.utils import Trader
+from config import appconfig
 
 async def main():
     pump = Pump(
@@ -18,9 +20,14 @@ async def main():
         pump.subscribe(steps=TradeRoadmap.sniper_1),
         #scanner.subscribe(steps=TradeRoadmap.scanner)
     ]
+    start_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
+    # TODO: implement trader execution from input parameters
+    print("Starting {} program at {}".format(Trader.sniper.value, start_time))
+
 
     await asyncio.gather(*tasks)
-    print("Stoping {} program".format(Trader.scanner.value))
+    stop_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
+    print("Stoping {} program at {}".format(Trader.scanner.value, stop_time))
 
 
 if __name__ == "__main__":

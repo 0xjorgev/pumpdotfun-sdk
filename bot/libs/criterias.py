@@ -72,7 +72,7 @@ def trading_analytics(
         ]
 
     else:
-        last_msg = previous_trades[-1]
+        last_msg = previous_trades.copy()[-1]
 
         last_msg_timestamp = datetime.fromtimestamp(last_msg["timestamp"])
         first_trade_timestamp = datetime.fromtimestamp(previous_trades[0]["timestamp"])
@@ -87,7 +87,7 @@ def trading_analytics(
         # We always keep track of the consecutive buys
         new_msg["max_consecutive_buys"] = last_msg["max_consecutive_buys"]
 
-        if msg["txType"].lower() == TxType.buy.value:
+        if new_msg["txType"].lower() == TxType.buy.value:
             new_msg["consecutive_sells"] = 0
             new_msg["seconds_between_sells"] = 0
 
@@ -121,7 +121,7 @@ def trading_analytics(
                     }
                 )
 
-        if msg["txType"].lower() == TxType.sell.value:
+        if new_msg["txType"].lower() == TxType.sell.value:
             new_msg["consecutive_buys"] = 0
             new_msg["seconds_between_buys"] = 0
 
@@ -164,7 +164,7 @@ def trading_analytics(
     return new_msg
 
 
-def max_consecutive_buys(buys: int, msg: dict) -> bool:
+def max_consecutive_buys(buys: int, msg: dict, amount_traded: float = None) -> bool:
     """
     Checks if the maximum consecutive buys has been reached.
     
@@ -178,7 +178,7 @@ def max_consecutive_buys(buys: int, msg: dict) -> bool:
     return msg["consecutive_buys"] >= buys
 
 
-def max_consecutive_sells(sells: int, msg: dict) -> bool:
+def max_consecutive_sells(sells: int, msg: dict, amount_traded: float = None) -> bool:
     """
     Checks if the maximum consecutive sells condition is met.
     
@@ -192,7 +192,7 @@ def max_consecutive_sells(sells: int, msg: dict) -> bool:
     return msg["consecutive_sells"] >= sells
 
 
-def max_seconds_between_buys(seconds: int, msg: dict) -> bool:
+def max_seconds_between_buys(seconds: float, msg: dict, amount_traded: float = None) -> bool:
     """
     Checks if the maximum allowed seconds between buys has been reached.
     
@@ -206,7 +206,7 @@ def max_seconds_between_buys(seconds: int, msg: dict) -> bool:
     return msg["seconds_between_buys"] >= seconds
 
 
-def trader_has_sold(msg: dict) -> bool:
+def trader_has_sold(expected: bool, msg: dict, amount_traded: float = None) -> bool:
     """
     Checks if the trader or developer has sold their tokens.
     
@@ -217,10 +217,10 @@ def trader_has_sold(msg: dict) -> bool:
     Returns:
         bool: True if the condition is met, otherwise False.
     """
-    return msg["trader_has_sold"]
+    return expected == msg["trader_has_sold"]
 
 
-def max_sols_in_token_after_buying_in_percentage(percentage: int, msg: dict) -> bool:
+def max_sols_in_token_after_buying_in_percentage(percentage: int, msg: dict, amount_traded: float) -> bool:
     """
     Checks if the maximum percentage of SOLs in the token after buying condition is met.
     
@@ -231,12 +231,14 @@ def max_sols_in_token_after_buying_in_percentage(percentage: int, msg: dict) -> 
     Returns:
         bool: True if the condition is met, otherwise False.
     """
-    pass
+    sols = msg["max_consecutive_buys"][-1]["sols"]
+    max_sols = amount_traded * percentage / 100
+    return sols <= max_sols
 
 
-def market_inactivity(seconds: int, msg: dict = None) -> bool:
+def market_inactivity(seconds: int, msg: dict = None, amount_traded: float = None) -> bool:
     """
-    Dummy fuction as it retrieves seconds received
+    Dummy fuction as it retrieves False
     
     Args:
         seconds (int): The maximum number of seconds of inactivity allowed.
@@ -245,7 +247,7 @@ def market_inactivity(seconds: int, msg: dict = None) -> bool:
     Returns:
         bool: True if the condition is met, otherwise False.
     """
-    return seconds
+    return False
 
 
 def test():
