@@ -1,3 +1,4 @@
+import copy
 from datetime import datetime
 from typing import Dict, List
 from bot.config import appconfig
@@ -29,7 +30,7 @@ def trading_analytics(
     :return: msg with more attributes
     """
 
-    new_msg = msg.copy()
+    new_msg = copy.deepcopy(msg)
     new_msg["timestamp"] = datetime.now().timestamp()       # Including timestamp in incomming message
 
     # Checking if the trade position is relevant enough to be considering for criteria
@@ -39,10 +40,12 @@ def trading_analytics(
     new_msg["consecutive_buys"] = 1 if msg["txType"].lower() == TxType.buy.value else 0
     new_msg["consecutive_sells"] = 1 if msg["txType"].lower() == TxType.sell.value else 0
 
+    is_this_my_trade = new_msg["traderPublicKey"] == str(pubkey)
+
     if not previous_trades:
         aprox = 0
         # Math calculation for Solana in Bonding Courve just before we bought
-        if new_msg["traderPublicKey"] == str(pubkey):
+        if is_this_my_trade:
             # We're the first recorded trade: we discount the amount to the current bonding curve
             new_msg["vSolInBondingCurve_Base"] = new_msg["vSolInBondingCurve"] - amount_traded
             
@@ -72,15 +75,21 @@ def trading_analytics(
         ]
 
     else:
-        last_msg = previous_trades.copy()[-1]
+        last_msg = copy.deepcopy(previous_trades[-1])
 
         last_msg_timestamp = datetime.fromtimestamp(last_msg["timestamp"])
         first_trade_timestamp = datetime.fromtimestamp(previous_trades[0]["timestamp"])
 
         # Current solanas traded
         sols = new_msg["vSolInBondingCurve"] - last_msg["vSolInBondingCurve"]
+        sols = sols if not is_this_my_trade else amount_traded
+
         # Checking if this trade is relavant or not. Keeping counter for consecutives buys/sells
-        new_msg["is_relevant_trade"] = sols >= appconfig.TRADING_CRITERIA_TRADE_RELEVANT_AMOUNT
+        is_relevant_trade = sols >= appconfig.TRADING_CRITERIA_TRADE_RELEVANT_AMOUNT
+
+        # Key: we're not considering our owns tradeS TO BE RELAVENT for criteria decision
+        new_msg["is_relevant_trade"] = False if is_this_my_trade else is_relevant_trade
+
         # We just count non relevant trades with consecutives buys/sells
         new_msg["is_non_relevant_trade_count"] = 0 if new_msg["is_relevant_trade"] else 1
 

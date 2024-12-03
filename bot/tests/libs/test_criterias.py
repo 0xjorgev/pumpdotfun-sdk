@@ -494,3 +494,81 @@ def test_trader_has_sold(
     )
     has_sold = trader_has_sold(msg=new_msg)
     assert has_sold == trader_has_sold_result, description
+
+@pytest.mark.parametrize(
+    """
+        description,
+        msg,
+        previous_trades,
+        amount,
+        traders,
+    """,
+    [
+        (
+            "Receiving our own trade: no relevant trades tolerance reached",
+            {
+                "signature":"xxxx",
+                "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                "traderPublicKey":"4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
+                "txType":"buy",
+                "tokenAmount":10000.00,
+                "newTokenBalance":30582206.734745,
+                "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                "vTokensInBondingCurve":200000000.00,
+                "vSolInBondingCurve":32.500,
+                "marketCapSol":32.001
+            },
+            [
+                {
+                    "signature":"xxxx",
+                    "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                    "traderPublicKey":"4RBnqw6CB9ANn9e16WWamqZNBZDHXwuFVWSjosk43ptC",
+                    "txType":"buy",
+                    "tokenAmount":10000000.0,
+                    "newTokenBalance":30582206.734745,
+                    "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                    "vTokensInBondingCurve":200000000.0,
+                    "vSolInBondingCurve":32.0,
+                    "marketCapSol":33.0,
+                    "timestamp":(datetime.now() - timedelta(seconds=2)).timestamp(),
+                    "is_relevant_trade":False,
+                    "consecutive_buys":2,
+                    "consecutive_sells":0,
+                    "vSolInBondingCurve_Base":30.4,
+                    "is_non_relevant_trade_count":2,
+                    "seconds_between_buys":0,
+                    "seconds_between_sells":0,
+                    "market_inactivity":0,
+                    "max_seconds_in_market":0,
+                    "max_consecutive_buys":[
+                        {
+                            "quantity":2,
+                            "sols":1.6
+                        }
+                    ]
+                }
+            ],
+            0.5,
+            [],
+        ),
+    ]
+)
+def test_detect_own_trade(
+    get_pubkey,
+    description,
+    msg,
+    previous_trades,
+    amount,
+    traders
+):
+    new_msg = trading_analytics(
+        msg=msg,
+        previous_trades=previous_trades.copy(),
+        amount_traded=amount,
+        pubkey=get_pubkey,
+        traders=traders
+    )
+
+    last_max_consecutive_buys = previous_trades[0]["max_consecutive_buys"][0]["quantity"]
+    max_consecutive_buys = new_msg["max_consecutive_buys"][0]["quantity"]
+    assert max_consecutive_buys == last_max_consecutive_buys + 1, description
