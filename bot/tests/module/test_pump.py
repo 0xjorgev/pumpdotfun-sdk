@@ -128,3 +128,18 @@ def test_log_trade_token_timestamp(description, trade_action, mint_address):
     assert key in pump.tokens[mint_address], description
     assert pump.tokens[mint_address][key] == trade_timestamp
 
+
+def test_fees():
+    pump = Pump(executor_name="test", trader_type=Trader.sniper)
+    assert pump.trade_fees == appconfig.FEES
+
+    pump.increase_fees()
+    assert pump.trade_fees >= appconfig.FEES
+
+    pump.decrease_fees()
+    assert pump.trade_fees == appconfig.FEES
+
+    pump.decrease_fees()
+    pump.decrease_fees()
+    pump.decrease_fees()
+    assert pump.trade_fees == appconfig.FEES

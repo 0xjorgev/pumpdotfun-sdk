@@ -20,7 +20,8 @@ def trading_analytics(
         previous_trades: List,
         amount_traded: float,
         pubkey: Pubkey,
-        traders: List[str] = []
+        token_timestamps: Dict,
+        traders: List[str] = [],
     ) -> Dict:
     """
     This function compare incomming messages with previous trades and include in the msg
@@ -29,9 +30,11 @@ def trading_analytics(
     :param previous_trades: history of incomming messages
     :return: msg with more attributes
     """
-
     new_msg = copy.deepcopy(msg)
-    new_msg["timestamp"] = datetime.now().timestamp()       # Including timestamp in incomming message
+
+    # Including timestamp in incomming message
+    new_msg["timestamp"] = datetime.now().timestamp()
+    new_msg["trade_time_delta"] = 0
 
     # Checking if the trade position is relevant enough to be considering for criteria
     new_msg["is_relevant_trade"] = True
@@ -118,6 +121,12 @@ def trading_analytics(
                     # Updating the last record
                     new_msg["max_consecutive_buys"][-1]["quantity"] = 1 + last_msg["consecutive_buys"]
                     new_msg["max_consecutive_buys"][-1]["sols"] += sols
+
+                # Calculating timedelta between buy and received message
+                if is_this_my_trade and "buy_timestamp" in token_timestamps:
+                    token_time = datetime.fromtimestamp(token_timestamps["buy_timestamp"])
+                    message_time = datetime.fromtimestamp(new_msg["timestamp"])
+                    new_msg["trade_time_delta"] = (message_time - token_time).total_seconds()
                 
             else:
                 new_msg["consecutive_buys"] = 1
@@ -215,18 +224,17 @@ def max_seconds_between_buys(seconds: float, msg: dict, amount_traded: float = N
     return msg["seconds_between_buys"] >= seconds
 
 
-def trader_has_sold(expected: bool, msg: dict, amount_traded: float = None) -> bool:
+def trader_has_sold(msg: dict, amount_traded: float = None) -> bool:
     """
     Checks if the trader or developer has sold their tokens.
     
     Args:
-        sold (bool): A flag indicating whether the developer has sold tokens.
         msg (dict): The message dictionary containing context.
 
     Returns:
         bool: True if the condition is met, otherwise False.
     """
-    return expected == msg["trader_has_sold"]
+    return msg["trader_has_sold"]
 
 
 def max_sols_in_token_after_buying_in_percentage(percentage: int, msg: dict, amount_traded: float) -> bool:

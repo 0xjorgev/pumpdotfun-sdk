@@ -217,7 +217,8 @@ def test_trading_analytics_buys(
         previous_trades=previous_trades,
         amount_traded=amount,
         pubkey=get_pubkey,
-        traders=traders
+        traders=traders,
+        token_timestamps={}
     )
     if str(get_pubkey) == new_msg["traderPublicKey"]:
         assert new_msg["vSolInBondingCurve_Base"] == new_msg["vSolInBondingCurve"] - amount, description
@@ -353,6 +354,7 @@ def test_max_seconds_between_buys(
         previous_trades=previous_trades,
         amount_traded=amount,
         pubkey=get_pubkey,
+        token_timestamps={},
         traders=traders
     )
 
@@ -490,6 +492,7 @@ def test_trader_has_sold(
         previous_trades=previous_trades,
         amount_traded=amount,
         pubkey=get_pubkey,
+        token_timestamps={},
         traders=traders
     )
     has_sold = trader_has_sold(msg=new_msg)
@@ -572,3 +575,50 @@ def test_detect_own_trade(
     last_max_consecutive_buys = previous_trades[0]["max_consecutive_buys"][0]["quantity"]
     max_consecutive_buys = new_msg["max_consecutive_buys"][0]["quantity"]
     assert max_consecutive_buys == last_max_consecutive_buys + 1, description
+
+
+@pytest.mark.parametrize(
+    """
+        description,
+        msg,
+        previous_trades,
+        amount,
+        traders,
+    """,
+    [
+        (
+            "Receiving our own trade ",
+            {
+                "signature":"xxxx",
+                "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                "traderPublicKey":"4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
+                "txType":"buy",
+                "tokenAmount":10000.00,
+                "newTokenBalance":30582206.734745,
+                "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                "vTokensInBondingCurve":200000000.00,
+                "vSolInBondingCurve":32.500,
+                "marketCapSol":32.001
+            },
+            [],
+            0.5,
+            [],
+        ),
+    ]
+)
+def test_trade_timedelta(
+    get_pubkey,
+    description,
+    msg,
+    previous_trades,
+    amount,
+    traders
+):
+    new_msg = trading_analytics(
+        msg=msg,
+        previous_trades=previous_trades.copy(),
+        amount_traded=amount,
+        pubkey=get_pubkey,
+        traders=traders,
+        token_timestamps={"buy_timestamp":(datetime.now() - timedelta(seconds=20)).timestamp()}
+    )

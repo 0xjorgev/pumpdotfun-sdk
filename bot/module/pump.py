@@ -185,6 +185,8 @@ class Pump:
         self.scanner_activity_time = appconfig.SCANNER_WORKING_TIME
         self.stop_app = False
 
+        self.trade_fees = appconfig.FEES
+
     def start_scanner(self):
         self.scanner_start_time = datetime.now()
 
@@ -202,6 +204,16 @@ class Pump:
         # BYPASS
         token_balance = 0
         return token_balance
+
+    def increase_fees(self):
+        self.trade_fees += appconfig.FEES_INCREASMENT
+
+    def decrease_fees(self):
+        lower_fees = round(self.trade_fees - appconfig.FEES_INCREASMENT, 5)
+        self.trade_fees = lower_fees if lower_fees >= appconfig.FEES else appconfig.FEES
+
+    def reset_fees(self):
+        self.trade_fees = appconfig.FEES
 
     def add_account(self, account: str):
         self.accounts.append(account)
@@ -569,13 +581,21 @@ class Pump:
                                         if self.tokens[mint]["is_closed"]:
                                             continue
 
+                                        time_stamps = {"buy_timestamp": None, "sell_timestamp": None}
+                                        if "buy_timestamp" in token:
+                                            time_stamps["buy_timestamp"] = token["buy_timestamp"]
+                                        
+                                        if "sell_timestamp" in token:
+                                            time_stamps["sell_timestamp"] = token["sell_timestamp"]
+
                                         # Doing some analytics like how many continuous buys have happend, etc
                                         new_msg = trading_analytics(
                                             msg=msg,
                                             previous_trades=token["trades"],
                                             amount_traded=self.trading_amount,
                                             pubkey=self.keypair.pubkey(),
-                                            traders=self.tokens[mint]["track_traders"] if "track_traders" in self.tokens[mint] else []
+                                            traders=self.tokens[mint]["track_traders"] if "track_traders" in self.tokens[mint] else [],
+                                            token_timestamps=time_stamps
                                         )
                                         # Including last message with new metadata into trades list
                                         token = self.tokens[mint].copy()        # Key point: need to copy the token
