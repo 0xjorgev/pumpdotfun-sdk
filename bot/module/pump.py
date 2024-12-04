@@ -233,6 +233,12 @@ class Pump:
     def clear_tokens(self):
         self.tokens = {}
 
+    def log_trade_token_timestamp(self, mint: str, txtype: TxType, trade_timestamp: int):
+        token = self.tokens[mint]
+        key = "{}_timestamp".format(txtype.value)
+        token[key] = trade_timestamp
+        self.add_update_token(token=token)
+
     # Traders to follow for starting and stoping pumps
     def add_trader(self, trader: str):
         self.traders.append(trader)
@@ -391,13 +397,13 @@ class Pump:
                         if "action" in step:
                             if step["action"] == TxType.buy:
                                 for mint_address, token_data in self.tokens.items():
-                                    buy_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
-                                    url = "https://pump.fun/coin/{}".format(mint_address)
-                                    print("Buy {} at {}".format(url, buy_time))
+                                    
                                     # We can trade closed tokens. This might happen if there's not enough balabnce
                                     if token_data["is_closed"]:
                                         print("  Can't buy {} as this token is closed".format(url))
                                         continue
+
+                                    print("Attempting to buy token {}".format(mint_address))
             
                                     txn = self.trade(
                                         txtype=TxType.buy,
@@ -411,6 +417,19 @@ class Pump:
                                             # Need to point to previous step
                                             step_index = step["on_error_go_to_step"] - 1
                                             break
+                                    
+                                    buy_time = datetime.now()
+                                    url = "https://pump.fun/coin/{}".format(mint_address)
+                                    print("Buy {} at {}".format(
+                                        url,
+                                        buy_time.strftime(appconfig.TIME_FORMAT).lower())
+                                    )
+
+                                    self.log_trade_token_timestamp(
+                                        token=mint_address,
+                                        txtype=TxType.buy,
+                                        timestamp=buy_time.timestamp()
+                                    )
 
                                     # Get the token balance in wallet
                                     token_balance = self.get_tkn_balance(
@@ -437,8 +456,6 @@ class Pump:
 
                             if step["action"] == TxType.sell:
                                 for mint_address, token_data in self.tokens.items():
-                                    sell_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
-                                    print("Sell {} at {}".format(url, sell_time))
                                     if token_data["is_closed"]:
                                         continue
 
@@ -447,6 +464,19 @@ class Pump:
                                         token=mint_address,
                                         keypair=self.keypair,
                                         amount=None             # Amount will be handled buy trade function
+                                    )
+
+                                    sell_time = datetime.now()
+                                    print("Sell {} at {}".format(
+                                            url,
+                                            sell_time.strftime(appconfig.TIME_FORMAT).lower()
+                                        )
+                                    )
+
+                                    self.log_trade_token_timestamp(
+                                        token=mint_address,
+                                        txtype=TxType.sell,
+                                        timestamp=buy_time.timestamp()
                                     )
                                     # Update wallet balance after selling
                                     self.get_balance(public_key=self.keypair.pubkey())
