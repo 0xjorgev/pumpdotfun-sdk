@@ -139,7 +139,8 @@ class TradeRoadmap:
                 "max_seconds_between_buys": 2.5,
                 "trader_has_sold": True,
                 "max_sols_in_token_after_buying_in_percentage": 100,
-                "market_inactivity": 3
+                "market_inactivity": 3,
+                "validate_trade_timedelta_exceeded": True
             }
         },
         {

@@ -32,9 +32,18 @@ def trading_analytics(
     """
     new_msg = copy.deepcopy(msg)
 
+    is_this_my_trade = new_msg["traderPublicKey"] == str(pubkey)
+
     # Including timestamp in incomming message
     new_msg["timestamp"] = datetime.now().timestamp()
     new_msg["trade_time_delta"] = 0
+    # Calculating timedelta between buy/sell and received message
+    if is_this_my_trade:
+        timestamp_key = "{}_timestamp".format(new_msg["txType"].lower())
+        if timestamp_key in token_timestamps:
+            token_time = datetime.fromtimestamp(token_timestamps[timestamp_key])
+            message_time = datetime.fromtimestamp(new_msg["timestamp"])
+            new_msg["trade_time_delta"] = (message_time - token_time).total_seconds()
 
     # Checking if the trade position is relevant enough to be considering for criteria
     new_msg["is_relevant_trade"] = True
@@ -42,8 +51,6 @@ def trading_analytics(
     # Default values that might change
     new_msg["consecutive_buys"] = 1 if msg["txType"].lower() == TxType.buy.value else 0
     new_msg["consecutive_sells"] = 1 if msg["txType"].lower() == TxType.sell.value else 0
-
-    is_this_my_trade = new_msg["traderPublicKey"] == str(pubkey)
 
     if not previous_trades:
         aprox = 0
@@ -122,12 +129,6 @@ def trading_analytics(
                     new_msg["max_consecutive_buys"][-1]["quantity"] = 1 + last_msg["consecutive_buys"]
                     new_msg["max_consecutive_buys"][-1]["sols"] += sols
 
-                # Calculating timedelta between buy and received message
-                if is_this_my_trade and "buy_timestamp" in token_timestamps:
-                    token_time = datetime.fromtimestamp(token_timestamps["buy_timestamp"])
-                    message_time = datetime.fromtimestamp(new_msg["timestamp"])
-                    new_msg["trade_time_delta"] = (message_time - token_time).total_seconds()
-                
             else:
                 new_msg["consecutive_buys"] = 1
                 new_msg["seconds_between_buys"] = 0
@@ -252,6 +253,16 @@ def max_sols_in_token_after_buying_in_percentage(percentage: int, msg: dict, amo
     max_sols = amount_traded * percentage / 100
     return sols <= max_sols
 
+def validate_trade_timedelta_exceeded(expected: bool, msg: dict, amount_traded: float = None) -> bool:
+    """
+    Checks if the timedelta in seconds between the buy/sell and the message received is acceptable or not
+    Args:
+        msg (dict): The message dictionary containing context.
+        expected (bool): The expected bool value outcome
+    Returns:
+        bool: True if the condition is met, otherwise False.
+    """
+    return msg["trade_time_delta"] >= appconfig.FEES_TIMEDELTA_IN_SECONDS and expected
 
 def market_inactivity(seconds: int, msg: dict = None, amount_traded: float = None) -> bool:
     """
@@ -427,5 +438,3 @@ def test():
         tokens[mint]["trades"].append(new_msg)
 
     print(tokens[mint]["trades"])
-
-#test()

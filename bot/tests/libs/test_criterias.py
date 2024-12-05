@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from typing import Any
 from unittest.mock import patch, Mock
 import pytest
+from bot.config import appconfig
 from bot.tests.libs.fixtures_criterias import *
 from bot.libs.criterias import (
     exit_on_first_sale,
@@ -9,7 +10,8 @@ from bot.libs.criterias import (
     exit_on_first_sale,
     max_consecutive_buys,
     max_seconds_between_buys,
-    trader_has_sold
+    trader_has_sold,
+    validate_trade_timedelta_exceeded
 )
 
 
@@ -569,7 +571,8 @@ def test_detect_own_trade(
         previous_trades=previous_trades.copy(),
         amount_traded=amount,
         pubkey=get_pubkey,
-        traders=traders
+        traders=traders,
+        token_timestamps={"buy_timestamp":(datetime.now() - timedelta(seconds=0)).timestamp()}
     )
 
     last_max_consecutive_buys = previous_trades[0]["max_consecutive_buys"][0]["quantity"]
@@ -580,14 +583,18 @@ def test_detect_own_trade(
 @pytest.mark.parametrize(
     """
         description,
+        txType,
         msg,
         previous_trades,
         amount,
         traders,
+        tdelta,
+        expected_result
     """,
     [
         (
-            "Receiving our own trade ",
+            "Buy: Receiving our own trade with delay",
+            "buy",
             {
                 "signature":"xxxx",
                 "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
@@ -603,22 +610,134 @@ def test_detect_own_trade(
             [],
             0.5,
             [],
+            0.5,
+            True
+        ),
+        (
+            "Buy: Receiving our own trade with NO delay",
+            "buy",
+            {
+                "signature":"xxxx",
+                "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                "traderPublicKey":"4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
+                "txType":"buy",
+                "tokenAmount":10000.00,
+                "newTokenBalance":30582206.734745,
+                "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                "vTokensInBondingCurve":200000000.00,
+                "vSolInBondingCurve":32.500,
+                "marketCapSol":32.001
+            },
+            [],
+            0.5,
+            [],
+            0.4999,
+            False
+        ),
+        (
+            "Sell: Receiving our own trade with delay",
+            "sell",
+            {
+                "signature":"xxxx",
+                "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                "traderPublicKey":"4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
+                "txType":"sell",
+                "tokenAmount":10000.00,
+                "newTokenBalance":30582206.734745,
+                "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                "vTokensInBondingCurve":200000000.00,
+                "vSolInBondingCurve":32.500,
+                "marketCapSol":32.001
+            },
+            [],
+            0.5,
+            [],
+            0.5,
+            True
+        ),
+        (
+            "Sell: Receiving our own trade with NO delay",
+            "sell",
+            {
+                "signature":"xxxx",
+                "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                "traderPublicKey":"4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
+                "txType":"sell",
+                "tokenAmount":10000.00,
+                "newTokenBalance":30582206.734745,
+                "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                "vTokensInBondingCurve":200000000.00,
+                "vSolInBondingCurve":32.500,
+                "marketCapSol":32.001
+            },
+            [],
+            0.5,
+            [],
+            0.4999,
+            False
+        ),
+        (
+            "Create: Receiving our own trade with delay",
+            "create",
+            {
+                "signature":"xxxx",
+                "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                "traderPublicKey":"4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
+                "txType":"create",
+                "tokenAmount":10000.00,
+                "newTokenBalance":30582206.734745,
+                "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                "vTokensInBondingCurve":200000000.00,
+                "vSolInBondingCurve":32.500,
+                "marketCapSol":32.001
+            },
+            [],
+            0.5,
+            [],
+            0.5,
+            True
+        ),
+        (
+            "Create: Receiving our own trade with NO delay",
+            "create",
+            {
+                "signature":"xxxx",
+                "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                "traderPublicKey":"4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
+                "txType":"create",
+                "tokenAmount":10000.00,
+                "newTokenBalance":30582206.734745,
+                "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                "vTokensInBondingCurve":200000000.00,
+                "vSolInBondingCurve":32.500,
+                "marketCapSol":32.001
+            },
+            [],
+            0.5,
+            [],
+            0.4999,
+            False
         ),
     ]
 )
 def test_trade_timedelta(
     get_pubkey,
+    txType,
     description,
     msg,
     previous_trades,
     amount,
-    traders
+    traders,
+    tdelta,
+    expected_result
 ):
+    tkey = "{}_timestamp".format(txType)
     new_msg = trading_analytics(
         msg=msg,
-        previous_trades=previous_trades.copy(),
+        previous_trades=previous_trades,
         amount_traded=amount,
         pubkey=get_pubkey,
         traders=traders,
-        token_timestamps={"buy_timestamp":(datetime.now() - timedelta(seconds=20)).timestamp()}
+        token_timestamps={tkey:(datetime.now() - timedelta(seconds=tdelta)).timestamp()}
     )
+    assert validate_trade_timedelta_exceeded(expected=expected_result, msg=new_msg) == expected_result, description
