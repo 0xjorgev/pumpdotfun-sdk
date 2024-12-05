@@ -207,11 +207,20 @@ class Pump:
         return token_balance
 
     def increase_fees(self):
+        print("### INCREASING FEES: from {} to {}".format(
+            self.trade_fees,
+            self.trade_fees + appconfig.FEES_INCREASMENT
+        ))
         self.trade_fees += appconfig.FEES_INCREASMENT
 
     def decrease_fees(self):
         lower_fees = round(self.trade_fees - appconfig.FEES_INCREASMENT, 5)
+        print("### DECREASING FEES: from {} to {}".format(
+            self.trade_fees,
+            lower_fees if lower_fees >= appconfig.FEES else appconfig.FEES
+        ))
         self.trade_fees = lower_fees if lower_fees >= appconfig.FEES else appconfig.FEES
+        
 
     def reset_fees(self):
         self.trade_fees = appconfig.FEES
@@ -796,6 +805,11 @@ class Pump:
         """
         txSignature = None
 
+        # Increase fees validation
+        if "exit_criteria" in self.tokens[token]:
+            if self.tokens[token]["exit_criteria"] == "validate_trade_timedelta_exceeded":
+                self.increase_fees()
+
         denominated_in_sol = "true" if txtype.value == TxType.buy.value else "false"
         amount = amount if txtype.value == TxType.buy.value else "100%"
 
@@ -832,7 +846,7 @@ class Pump:
                 )
                 if response.status_code != 200:
                     if txtype.value == TxType.buy.value:
-                        print("Trade->{} Failed get quote. Exiting trade function. Error: {} returned a status code {}.  Response: {}".format(
+                        print("Trade->{} Failed getting quote. Exiting trade function. Error: {} returned a status code {}.  Response: {}".format(
                             txtype.value,
                             appconfig.PUMPFUN_TRANSACTION_URL,
                             response.status_code,
@@ -852,6 +866,14 @@ class Pump:
                     time.sleep(appconfig.RETRYING_SECONDS)
                     continue
             except Exception as e:
+                if txtype.value == TxType.buy.value:
+                    print("Trade->{} Exception: {}. Exiting trade function. Message: {}".format(
+                        txtype.value,
+                        appconfig.PUMPFUN_TRANSACTION_URL,
+                        e
+                    ))
+                    break
+
                 retries += 1
                 print("Trade->{} Exception: {}. Retrying again {} times. Message: {}".format(
                     txtype.value,
