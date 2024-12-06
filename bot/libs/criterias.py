@@ -52,7 +52,7 @@ def trading_analytics(
     new_msg["consecutive_buys"] = 1 if msg["txType"].lower() == TxType.buy.value else 0
     new_msg["consecutive_sells"] = 1 if msg["txType"].lower() == TxType.sell.value else 0
 
-    new_msg["seller_is_a_known_trader"] = any(
+    new_msg["seller_is_an_unknown_trader"] = not any(
         trade for trade in previous_trades if new_msg["traderPublicKey"] == trade["traderPublicKey"]
     )
 
@@ -269,8 +269,8 @@ def validate_trade_timedelta_exceeded(expected: bool, msg: dict, amount_traded: 
     return msg["trade_time_delta"] >= appconfig.FEES_TIMEDELTA_IN_SECONDS and expected
 
 
-def seller_is_a_known_trader(expected: bool, msg: dict, amount_traded: float = None) -> bool:
-    return msg["seller_is_a_known_trader"] and expected
+def seller_is_an_unknown_trader(expected: bool, msg: dict, amount_traded: float = None) -> bool:
+    return msg["seller_is_an_unknown_trader"] and expected
 
 def market_inactivity(seconds: int, msg: dict = None, amount_traded: float = None) -> bool:
     """

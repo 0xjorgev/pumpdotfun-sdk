@@ -15,7 +15,7 @@ from bot.libs.criterias import (
     max_seconds_between_buys,
     max_sols_in_token_after_buying_in_percentage,
     trader_has_sold,
-    seller_is_a_known_trader,
+    seller_is_an_unknown_trader,
     market_inactivity
 )
 from bot.libs import criterias as criteria_functions
@@ -134,6 +134,7 @@ class TradeRoadmap:
             "step": 2,
             "name": "TOKEN_SUBSCRIPTION",
             "subscription": Suscription.subscribeTokenTrade,
+            # Exit criteria to move on to the next step
             "criteria": {
                 "max_consecutive_buys": 4,
                 "max_consecutive_sells": 2,
@@ -142,7 +143,7 @@ class TradeRoadmap:
                 "max_sols_in_token_after_buying_in_percentage": 100,
                 "market_inactivity": 3,
                 "validate_trade_timedelta_exceeded": True,
-                "seller_is_a_known_trader": True
+                "seller_is_an_unknown_trader": True
             }
         },
         {

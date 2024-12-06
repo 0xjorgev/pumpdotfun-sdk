@@ -12,7 +12,7 @@ from bot.libs.criterias import (
     max_seconds_between_buys,
     trader_has_sold,
     validate_trade_timedelta_exceeded,
-    seller_is_a_known_trader
+    seller_is_an_unknown_trader
 )
 
 
@@ -798,12 +798,12 @@ def test_trade_timedelta(
                             "sols":1.6
                         }
                     ],
-                    "seller_is_a_known_trader": False,
+                    "seller_is_an_unknown_trader": False,
                 }
             ],
             0.5,
             [],
-            True
+            False
         ),
         (
             "Sell: unknown seller that might had buyed before we did. ",
@@ -848,16 +848,16 @@ def test_trade_timedelta(
                             "sols":1.6
                         }
                     ],
-                    "seller_is_a_known_trader": False,
+                    "seller_is_an_unknown_trader": False,
                 }
             ],
             0.5,
             [],
-            False
+            True
         ),
     ]
 )
-def test_seller_is_a_known_trader(
+def test_seller_is_an_unknown_trader(
     get_pubkey,
     txType,
     description,
@@ -876,4 +876,4 @@ def test_seller_is_a_known_trader(
         traders=traders,
         token_timestamps={tkey:(datetime.now() - timedelta(seconds=0)).timestamp()}
     )
-    assert seller_is_a_known_trader(expected=expected_result, msg=new_msg) == expected_result, description
+    assert seller_is_an_unknown_trader(expected=expected_result, msg=new_msg) == expected_result, description

@@ -23,7 +23,7 @@ class AuthConfig:
     SLIPPAGE = os.environ.get("SLIPPAGE", 10)
     FEES = float(os.environ.get("FEES", 0.00805))
     FEES_INCREASMENT = 0.002
-    FEES_TIMEDELTA_IN_SECONDS = 0.5
+    FEES_TIMEDELTA_IN_SECONDS = 0.5     # Tolerance to delays between buying and entering in the trade
     FEES_BPS = float(os.environ.get("FEES", 0.0005)) * 10000   # Fees in BPS
     PRIVKEY = os.environ.get(
         "PRIVKEY",
