@@ -9,6 +9,7 @@ RUN apt-get update && apt-get -y upgrade && apt-get install -y \
     build-essential \
     procps \
     bash \
+    vim \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

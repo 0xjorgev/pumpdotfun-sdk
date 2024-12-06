@@ -48,7 +48,7 @@ def test_attribute_handling(
     "txtype, token, amount, expected_value, retries, status_code, content, description", [
         (
             TxType.buy,
-            "49fRbSzsHhtjH6ZF4KQDCcmcFdSbU11uHGeVMWbSpump",
+            {"mint": "49fRbSzsHhtjH6ZF4KQDCcmcFdSbU11uHGeVMWbSpump"},
             1.0,
             None,
             1,
@@ -58,7 +58,7 @@ def test_attribute_handling(
         ),
         (
             TxType.buy,
-            "49fRbSzsHhtjH6ZF4KQDCcmcFdSbU11uHGeVMWbSpump",
+            {"mint": "49fRbSzsHhtjH6ZF4KQDCcmcFdSbU11uHGeVMWbSpump"},
             1.0,
             None,
             1,
@@ -104,7 +104,8 @@ def test_trade(
     get_balance_mocked.return_value = 5.00
     
     pump = Pump(executor_name="test", trader_type=Trader.sniper)
-    txn = pump.trade(txtype=txtype, token=token, keypair=pubkey_mocked, amount=amount)
+    pump.add_update_token(token=token)
+    txn = pump.trade(txtype=txtype, token=token["mint"], keypair=pubkey_mocked, amount=amount)
     assert txn == expected_value, description
     post_mocked.assert_called_once
 

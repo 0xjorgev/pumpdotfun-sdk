@@ -498,7 +498,7 @@ def test_trader_has_sold(
         token_timestamps={},
         traders=traders
     )
-    has_sold = trader_has_sold(msg=new_msg)
+    has_sold = trader_has_sold(expected=trader_has_sold_result, msg=new_msg)
     assert has_sold == trader_has_sold_result, description
 
 @pytest.mark.parametrize(

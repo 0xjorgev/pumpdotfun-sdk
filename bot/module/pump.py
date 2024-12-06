@@ -94,7 +94,7 @@ class TradeRoadmap:
             "name": "START_SCANNER",
             "system_action": Celebrimborg.start,
             "criteria": {
-                "scanner_activity_time": -1,    # How much time the scanner will be working. -1 is always
+                "scanner_activity_time": 60,    # How much time the scanner will be working. -1 is always
             },
         },
         {
@@ -111,7 +111,7 @@ class TradeRoadmap:
             "subscription": Suscription.subscribeNewToken,
             "criteria": {
                 "min_initial_buy": 1.50,        # Filter: we'll trade tokens with this initial buying amount at least.
-                "trading_amount": 0.5,          # Amount to be traded by snipers
+                "trading_amount": 0.1,          # Amount to be traded by snipers
                 "trader": Trader.sniper.value   # Who will trade the tokens
             },
             "action":{
@@ -149,7 +149,7 @@ class TradeRoadmap:
                 "max_consecutive_sells": 2,
                 "max_seconds_between_buys": 2.5,
                 "trader_has_sold": True,
-                "max_sols_in_token_after_buying_in_percentage": 100,
+                "max_sols_in_token_after_buying_in_percentage": 500,
                 "market_inactivity": 3,
                 "validate_trade_timedelta_exceeded": True,
                 "seller_is_an_unknown_trader": True
@@ -226,7 +226,7 @@ class Pump:
         self.trade_fees += appconfig.FEES_INCREASMENT
 
     def decrease_fees(self):
-        lower_fees = round(self.trade_fees - appconfig.FEES_INCREASMENT, 5)
+        lower_fees = round(self.trade_fees - appconfig.FEES_INCREASMENT, 9)
         print("### DECREASING FEES: from {} to {}".format(
             self.trade_fees,
             lower_fees if lower_fees >= appconfig.FEES else appconfig.FEES
@@ -473,7 +473,7 @@ class Pump:
                                     self.log_trade_token_timestamp(
                                         mint=mint_address,
                                         txtype=TxType.buy,
-                                        timestamp=buy_time.timestamp()
+                                        trade_timestamp=buy_time.timestamp()
                                     )
 
                                     # Get the token balance in wallet
@@ -521,7 +521,7 @@ class Pump:
                                     self.log_trade_token_timestamp(
                                         mint=mint_address,
                                         txtype=TxType.sell,
-                                        timestamp=buy_time.timestamp()
+                                        trade_timestamp=buy_time.timestamp()
                                     )
                                     # Update wallet balance after selling
                                     self.get_balance(public_key=self.keypair.pubkey())

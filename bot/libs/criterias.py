@@ -229,7 +229,7 @@ def max_seconds_between_buys(seconds: float, msg: dict, amount_traded: float = N
     return msg["seconds_between_buys"] >= seconds
 
 
-def trader_has_sold(msg: dict, amount_traded: float = None) -> bool:
+def trader_has_sold(expected: bool, msg: dict, amount_traded: float = None) -> bool:
     """
     Checks if the trader or developer has sold their tokens.
     
@@ -239,7 +239,7 @@ def trader_has_sold(msg: dict, amount_traded: float = None) -> bool:
     Returns:
         bool: True if the condition is met, otherwise False.
     """
-    return msg["trader_has_sold"]
+    return msg["trader_has_sold"] and expected
 
 
 def max_sols_in_token_after_buying_in_percentage(percentage: int, msg: dict, amount_traded: float) -> bool:
