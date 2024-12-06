@@ -1,8 +1,12 @@
 import base58
+import base64
+import json
+import struct
 
 from enum import Enum
 from solana.rpc.async_api import AsyncClient
 from solana.rpc.types import TokenAccountOpts
+from solders.message import Message
 from solders.pubkey import Pubkey
 
 from bot.config import appconfig
@@ -108,3 +112,57 @@ def initial_buy_calculator(sol_in_bonding_curve: float):
     pump_dont_fun_initial_fund = appconfig.SCANNER_PUMPDONTFUN_INITIAL_FUND
     sols = round(sol_in_bonding_curve - pump_dont_fun_initial_fund, 3)
     return sols
+
+def flatten_data(data):
+    if isinstance(data, list):
+        return b"".join(flatten_data(item) for item in data)
+    elif isinstance(data, int):
+        return data.to_bytes(1, 'little')  # Convert integer to a single byte
+    return b""
+
+def decode_instruction(raw_data):
+    if len(raw_data) >= 5:  # Ensure at least enough data for a float
+        # Assume the first byte is the Field ID
+        field_id = raw_data[0]
+        # Interpret the next 4 bytes as a float (little-endian)
+        try:
+            price_impact = struct.unpack('<f', raw_data[1:5])[0]
+        except struct.error:
+            price_impact = None
+        return field_id, price_impact
+    else:
+        return None, None
+
+def get_instructions_from_message(msg: Message):
+    """
+    This function parse the Message from Quote and gets all intructions
+    UNDER DEVELOPMENT: need to tell which instruction is the priceImpactPct
+    """
+    message_json = msg.to_json()
+    message_dict = json.loads(message_json)
+    parsed_instructions = []
+    # Check for priceImpactPct in the instructions
+    instructions = message_dict.get("instructions", [])
+    for idx, instruction in enumerate(instructions):
+        if isinstance(instruction, dict):
+            data = instruction.get("data", "")
+            #raw_data = flatten_data(data)
+            raw_data = instruction.get('data', [])
+            flat_data = flatten_data(raw_data)  # Use your flattening logic
+            field_id, price_impact = decode_instruction(flat_data)
+            print(f"Instruction {idx}: Field ID: {field_id}, Price Impact: {price_impact}")
+            parsed_instructions.append(
+                {"field_id": idx, "possible_price_impact": price_impact}
+            )
+                                                
+            # Decode the instruction data if necessary (e.g., Base64 decoding)
+            try:
+                decoded_data = base64.b64decode(data).decode("utf-8")
+            except Exception:
+                decoded_data = data  # Keep raw if decoding fails
+
+            # Check if priceImpactPct is in the decoded data
+            if "priceImpactPct" in decoded_data:
+                print(f"Instruction {idx} contains priceImpactPct: {decoded_data}")
+    
+    return parsed_instructions

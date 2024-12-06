@@ -11,7 +11,8 @@ from bot.libs.criterias import (
     max_consecutive_buys,
     max_seconds_between_buys,
     trader_has_sold,
-    validate_trade_timedelta_exceeded
+    validate_trade_timedelta_exceeded,
+    seller_is_a_known_trader
 )
 
 
@@ -741,3 +742,138 @@ def test_trade_timedelta(
         token_timestamps={tkey:(datetime.now() - timedelta(seconds=tdelta)).timestamp()}
     )
     assert validate_trade_timedelta_exceeded(expected=expected_result, msg=new_msg) == expected_result, description
+
+
+@pytest.mark.parametrize(
+    """
+        description,
+        txType,
+        msg,
+        previous_trades,
+        amount,
+        traders,
+        expected_result
+    """,
+    [
+        (
+            "Sell: known seller who has traded at least one time after us. ",
+            "sell",
+            {
+                "signature":"xxxx",
+                "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                "traderPublicKey":"4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
+                "txType":"sell",
+                "tokenAmount":10000.00,
+                "newTokenBalance":30582206.734745,
+                "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                "vTokensInBondingCurve":200000000.00,
+                "vSolInBondingCurve":32.500,
+                "marketCapSol":32.001
+            },
+            [
+                {
+                    "signature":"xxxx",
+                    "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                    "traderPublicKey":"4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
+                    "txType":"buy",
+                    "tokenAmount":10000000.0,
+                    "newTokenBalance":30582206.734745,
+                    "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                    "vTokensInBondingCurve":200000000.0,
+                    "vSolInBondingCurve":32.0,
+                    "marketCapSol":33.0,
+                    "timestamp":1732963950.837367,
+                    "is_relevant_trade":True,
+                    "consecutive_buys":1,
+                    "consecutive_sells":0,
+                    "vSolInBondingCurve_Base":30.4,
+                    "is_non_relevant_trade_count":0,
+                    "seconds_between_buys":0,
+                    "seconds_between_sells":0,
+                    "market_inactivity":0,
+                    "max_seconds_in_market":0,
+                    "max_consecutive_buys":[
+                        {
+                            "quantity":1,
+                            "sols":1.6
+                        }
+                    ],
+                    "seller_is_a_known_trader": False,
+                }
+            ],
+            0.5,
+            [],
+            True
+        ),
+        (
+            "Sell: unknown seller that might had buyed before we did. ",
+            "sell",
+            {
+                "signature":"xxxx",
+                "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                "traderPublicKey":"4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
+                "txType":"sell",
+                "tokenAmount":10000.00,
+                "newTokenBalance":30582206.734745,
+                "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                "vTokensInBondingCurve":200000000.00,
+                "vSolInBondingCurve":32.500,
+                "marketCapSol":32.001
+            },
+            [
+                {
+                    "signature":"xxxx",
+                    "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                    "traderPublicKey":"4Xx7xxXxXX125XX3Xx2xxXxxxxXXxxxxXxXxXxxxpump",
+                    "txType":"buy",
+                    "tokenAmount":10000000.0,
+                    "newTokenBalance":30582206.734745,
+                    "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                    "vTokensInBondingCurve":200000000.0,
+                    "vSolInBondingCurve":32.0,
+                    "marketCapSol":33.0,
+                    "timestamp":1732963950.837367,
+                    "is_relevant_trade":True,
+                    "consecutive_buys":1,
+                    "consecutive_sells":0,
+                    "vSolInBondingCurve_Base":30.4,
+                    "is_non_relevant_trade_count":0,
+                    "seconds_between_buys":0,
+                    "seconds_between_sells":0,
+                    "market_inactivity":0,
+                    "max_seconds_in_market":0,
+                    "max_consecutive_buys":[
+                        {
+                            "quantity":1,
+                            "sols":1.6
+                        }
+                    ],
+                    "seller_is_a_known_trader": False,
+                }
+            ],
+            0.5,
+            [],
+            False
+        ),
+    ]
+)
+def test_seller_is_a_known_trader(
+    get_pubkey,
+    txType,
+    description,
+    msg,
+    previous_trades,
+    amount,
+    traders,
+    expected_result
+):
+    tkey = "{}_timestamp".format(txType)
+    new_msg = trading_analytics(
+        msg=msg,
+        previous_trades=previous_trades,
+        amount_traded=amount,
+        pubkey=get_pubkey,
+        traders=traders,
+        token_timestamps={tkey:(datetime.now() - timedelta(seconds=0)).timestamp()}
+    )
+    assert seller_is_a_known_trader(expected=expected_result, msg=new_msg) == expected_result, description

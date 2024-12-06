@@ -15,6 +15,7 @@ from bot.libs.criterias import (
     max_seconds_between_buys,
     max_sols_in_token_after_buying_in_percentage,
     trader_has_sold,
+    seller_is_a_known_trader,
     market_inactivity
 )
 from bot.libs import criterias as criteria_functions
@@ -134,13 +135,14 @@ class TradeRoadmap:
             "name": "TOKEN_SUBSCRIPTION",
             "subscription": Suscription.subscribeTokenTrade,
             "criteria": {
-                "max_consecutive_buys": 2,
-                "max_consecutive_sells": 1,
+                "max_consecutive_buys": 4,
+                "max_consecutive_sells": 2,
                 "max_seconds_between_buys": 2.5,
                 "trader_has_sold": True,
                 "max_sols_in_token_after_buying_in_percentage": 100,
                 "market_inactivity": 3,
-                "validate_trade_timedelta_exceeded": True
+                "validate_trade_timedelta_exceeded": True,
+                "seller_is_a_known_trader": True
             }
         },
         {
@@ -448,7 +450,7 @@ class Pump:
                                     )
 
                                     self.log_trade_token_timestamp(
-                                        token=mint_address,
+                                        mint=mint_address,
                                         txtype=TxType.buy,
                                         timestamp=buy_time.timestamp()
                                     )
@@ -496,7 +498,7 @@ class Pump:
                                     )
 
                                     self.log_trade_token_timestamp(
-                                        token=mint_address,
+                                        mint=mint_address,
                                         txtype=TxType.sell,
                                         timestamp=buy_time.timestamp()
                                     )
