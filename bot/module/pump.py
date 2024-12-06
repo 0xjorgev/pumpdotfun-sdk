@@ -54,6 +54,7 @@ class Redis(Enum):
     closeToken = "closeToken"
     readTraders = "readTraders"
     saveToken = "saveToken"
+    cleanTokens = "cleanTokens"
 
 
 class TradeRoadmap:
@@ -93,11 +94,19 @@ class TradeRoadmap:
             "name": "START_SCANNER",
             "system_action": Celebrimborg.start,
             "criteria": {
-                "scanner_activity_time": 10,    # How much time the scanner will be working. -1 is always
+                "scanner_activity_time": -1,    # How much time the scanner will be working. -1 is always
             },
         },
         {
             "step": 1,
+            "name": "CLEAN_UNTRADED_TOKENS_FROM_REDIS",
+            "redis": Redis.cleanTokens,
+            "criteria": {
+                "delete_unchecked_tokens": True
+            }
+        },
+        {
+            "step": 2,
             "name": "SCANNER",
             "subscription": Suscription.subscribeNewToken,
             "criteria": {
@@ -113,7 +122,7 @@ class TradeRoadmap:
                 }
             }
         },
-        {"step": 2, "name": "exit", "system_action": Celebrimborg.exit},
+        {"step": 3, "name": "exit", "system_action": Celebrimborg.exit},
     ]
     sniper_1 = [
         {
@@ -325,6 +334,17 @@ class Pump:
 
                         # REDIS DB HANDLING
                         if "redis" in step:
+                            if step["redis"] == Redis.cleanTokens:
+                                if "criteria" in step:
+                                    if "delete_unchecked_tokens" in step["criteria"]:
+                                        if step["criteria"]["delete_unchecked_tokens"]:
+                                            deletions = redisdb.delete_unchecked_tokens()
+                                            print("Deleted unchecked tokens from redis db: {}".format(
+                                                deletions
+                                            ))
+                                step_index += 1
+                                continue
+
                             # Listen to redis change
                             redisdb.subscribe()
                             if step["redis"] == Redis.readToken:

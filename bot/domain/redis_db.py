@@ -155,6 +155,29 @@ class RedisDB:
         token.update(new_data)
         return token
 
+    def delete_unchecked_tokens(self)-> int:
+        deleted_tokens = 0
+        # Search for keys where is_checked is false
+        try:
+            # Scan and filter keys
+            cursor = 0
+            while True:
+                cursor, keys = self.client.scan(cursor=cursor, match='token:*', count=1000)
+                for key in keys:
+                    data = self.client.json().get(key)
+                    if data:
+                        try: 
+                            if data.get('is_checked') is False:  # Check the condition
+                                self.client.delete(key)
+                                deleted_tokens += 1
+                        except json.JSONDecodeError:
+                            continue  # Skip keys with invalid JSON
+                if cursor == 0:
+                    break
+        except Exception as e:
+            print("Redis.delete_unchecked_tokens Error: {}".format(e))
+
+        return deleted_tokens
 
 def test_create_record(mint_address: str):
     redis_object = RedisDB()
