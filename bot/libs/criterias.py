@@ -56,9 +56,11 @@ def trading_analytics(
     new_msg["consecutive_buys"] = 1 if msg["txType"].lower() == TxType.buy.value and not is_this_my_trade else 0
     new_msg["consecutive_sells"] = 1 if msg["txType"].lower() == TxType.sell.value and not is_this_my_trade else 0
 
-    new_msg["seller_is_an_unknown_trader"] = not any(
-        trade for trade in previous_trades if new_msg["traderPublicKey"] == trade["traderPublicKey"]
-    )
+    new_msg["seller_is_an_unknown_trader"] = False
+    if new_msg["txType"].lower() == TxType.sell.value:
+        new_msg["seller_is_an_unknown_trader"] = not any(
+            trade for trade in previous_trades if new_msg["traderPublicKey"] == trade["traderPublicKey"]
+        )
 
     if not previous_trades:
         aprox = 0
