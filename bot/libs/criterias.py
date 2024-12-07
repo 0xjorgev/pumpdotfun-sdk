@@ -39,18 +39,22 @@ def trading_analytics(
     new_msg["trade_time_delta"] = 0
     # Calculating timedelta between buy/sell and received message
     if is_this_my_trade:
+        print("trading_analytics: *** THIS IS OUR TRADE ***")
         timestamp_key = "{}_timestamp".format(new_msg["txType"].lower())
         if timestamp_key in token_timestamps:
             token_time = datetime.fromtimestamp(token_timestamps[timestamp_key])
             message_time = datetime.fromtimestamp(new_msg["timestamp"])
             new_msg["trade_time_delta"] = (message_time - token_time).total_seconds()
+            print("   *** trade_time_delta: {}".format(new_msg["trade_time_delta"]))
+            print("   *** message_time: {}".format(message_time.strftime(appconfig.TIME_FORMAT).lower()))
+            print("   *** token_time: {}".format(token_time.strftime(appconfig.TIME_FORMAT).lower()))
 
     # Checking if the trade position is relevant enough to be considering for criteria
     new_msg["is_relevant_trade"] = True
 
     # Default values that might change
-    new_msg["consecutive_buys"] = 1 if msg["txType"].lower() == TxType.buy.value else 0
-    new_msg["consecutive_sells"] = 1 if msg["txType"].lower() == TxType.sell.value else 0
+    new_msg["consecutive_buys"] = 1 if msg["txType"].lower() == TxType.buy.value and not is_this_my_trade else 0
+    new_msg["consecutive_sells"] = 1 if msg["txType"].lower() == TxType.sell.value and not is_this_my_trade else 0
 
     new_msg["seller_is_an_unknown_trader"] = not any(
         trade for trade in previous_trades if new_msg["traderPublicKey"] == trade["traderPublicKey"]
@@ -84,7 +88,7 @@ def trading_analytics(
         new_msg["max_consecutive_buys"] = [
             {
                 "quantity": new_msg["consecutive_buys"],
-                "sols": amount_traded if aprox == 0 else aprox
+                "sols": amount_traded if aprox == 0 else aprox if not is_this_my_trade else 0
             }
         ]
 
@@ -130,8 +134,9 @@ def trading_analytics(
                     new_msg["consecutive_buys"] = 1 + last_msg["consecutive_buys"]
                     new_msg["seconds_between_buys"] = (datetime.now() - last_msg_timestamp).total_seconds()
                     # Updating the last record
-                    new_msg["max_consecutive_buys"][-1]["quantity"] = 1 + last_msg["consecutive_buys"]
-                    new_msg["max_consecutive_buys"][-1]["sols"] += sols
+                    if not is_this_my_trade:
+                        new_msg["max_consecutive_buys"][-1]["quantity"] = 1 + last_msg["consecutive_buys"]
+                        new_msg["max_consecutive_buys"][-1]["sols"] += sols
 
             else:
                 new_msg["consecutive_buys"] = 1
@@ -161,8 +166,9 @@ def trading_analytics(
         
                     new_msg["is_non_relevant_trade_count"] = 0
 
-                    new_msg["consecutive_sells"] = 1 + last_msg["consecutive_sells"]
-                    new_msg["seconds_between_sells"] = (datetime.now() - last_msg_timestamp).total_seconds()
+                    if not is_this_my_trade:
+                        new_msg["consecutive_sells"] = 1 + last_msg["consecutive_sells"]
+                        new_msg["seconds_between_sells"] = (datetime.now() - last_msg_timestamp).total_seconds()
 
             else:
                 new_msg["consecutive_sells"] = 1
@@ -242,7 +248,7 @@ def trader_has_sold(expected: bool, msg: dict, amount_traded: float = None) -> b
     return msg["trader_has_sold"] and expected
 
 
-def max_sols_in_token_after_buying_in_percentage(percentage: int, msg: dict, amount_traded: float) -> bool:
+def max_sols_in_token_after_buying_in_percentage(percentage: int, msg: dict, amount_traded: float = None) -> bool:
     """
     Checks if the maximum percentage of SOLs in the token after buying condition is met.
     
@@ -255,7 +261,7 @@ def max_sols_in_token_after_buying_in_percentage(percentage: int, msg: dict, amo
     """
     sols = msg["max_consecutive_buys"][-1]["sols"]
     max_sols = amount_traded * percentage / 100
-    return sols <= max_sols
+    return sols >= max_sols
 
 def validate_trade_timedelta_exceeded(expected: bool, msg: dict, amount_traded: float = None) -> bool:
     """

@@ -12,7 +12,7 @@ class AppMode(Enum):
 class AuthConfig:
     # our code environment
     ENVIRONMENT = os.environ.get("ENVIRONMENT", "local")
-    APPMODE = os.environ.get("APPMODE", AppMode.dummy.value)
+    APPMODE = os.environ.get("APPMODE", AppMode.real.value)
 
     TIME_FORMAT = "%b %-d %-I:%M:%S %p"
 
@@ -21,9 +21,10 @@ class AuthConfig:
     # High volatility or limited liquidity: 1% to 3%
     # Very volatile or low-liquidity asset: up to 5%
     SLIPPAGE = os.environ.get("SLIPPAGE", 10)
-    FEES = float(os.environ.get("FEES", 0.00805))
-    FEES_INCREASMENT = 0.002
-    FEES_TIMEDELTA_IN_SECONDS = 0.5     # Tolerance to delays between buying and entering in the trade
+    FEES = float(os.environ.get("FEES", 0.000805))
+    FEES_INCREASMENT = 0.000805
+    FEES_TIMEDELTA_IN_SECONDS = 1.0     # Tolerance to delays between buying and entering in 
+                                        # the trade because of lower fees
     FEES_BPS = float(os.environ.get("FEES", 0.0005)) * 10000   # Fees in BPS
     PRIVKEY = os.environ.get(
         "PRIVKEY",

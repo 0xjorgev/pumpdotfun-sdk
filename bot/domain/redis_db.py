@@ -84,6 +84,8 @@ class RedisDB:
 
             if not is_checked and trader_match:
                 track_traders = data["track_traders"] if "track_traders" in data else []
+                # By default we'll always keeep track of the developer
+                track_traders.append(data["traderPublicKey"])
                 token = {
                     "key": key,
                     "mint": key.replace("token:", ""),      # Mint address from key value

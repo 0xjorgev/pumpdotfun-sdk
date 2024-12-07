@@ -12,7 +12,8 @@ from bot.libs.criterias import (
     max_seconds_between_buys,
     trader_has_sold,
     validate_trade_timedelta_exceeded,
-    seller_is_an_unknown_trader
+    seller_is_an_unknown_trader,
+    max_sols_in_token_after_buying_in_percentage
 )
 
 
@@ -233,7 +234,6 @@ def test_trading_analytics_buys(
 
     assert max_consecutive_buys(buys=get_max_consecutive_buys, msg=new_msg) == max_consecutive_buys_result
 
-
 @pytest.mark.parametrize(
     """
         description,
@@ -366,7 +366,6 @@ def test_max_seconds_between_buys(
             msg=new_msg
         )
     assert seconds_exceeded == max_seconds_between_buys_result, description
-
 
 @pytest.mark.parametrize(
     """
@@ -578,8 +577,8 @@ def test_detect_own_trade(
 
     last_max_consecutive_buys = previous_trades[0]["max_consecutive_buys"][0]["quantity"]
     max_consecutive_buys = new_msg["max_consecutive_buys"][0]["quantity"]
-    assert max_consecutive_buys == last_max_consecutive_buys + 1, description
-
+    # Our trades wont affect the max consecutive buys count
+    assert max_consecutive_buys == last_max_consecutive_buys, description
 
 @pytest.mark.parametrize(
     """
@@ -611,7 +610,7 @@ def test_detect_own_trade(
             [],
             0.5,
             [],
-            0.5,
+            1.0,
             True
         ),
         (
@@ -632,7 +631,7 @@ def test_detect_own_trade(
             [],
             0.5,
             [],
-            0.4999,
+            0.9999,
             False
         ),
         (
@@ -653,7 +652,7 @@ def test_detect_own_trade(
             [],
             0.5,
             [],
-            0.5,
+            1.01,
             True
         ),
         (
@@ -674,7 +673,7 @@ def test_detect_own_trade(
             [],
             0.5,
             [],
-            0.4999,
+            0.9999,
             False
         ),
         (
@@ -695,7 +694,7 @@ def test_detect_own_trade(
             [],
             0.5,
             [],
-            0.5,
+            1.5,
             True
         ),
         (
@@ -742,7 +741,6 @@ def test_trade_timedelta(
         token_timestamps={tkey:(datetime.now() - timedelta(seconds=tdelta)).timestamp()}
     )
     assert validate_trade_timedelta_exceeded(expected=expected_result, msg=new_msg) == expected_result, description
-
 
 @pytest.mark.parametrize(
     """
@@ -877,3 +875,187 @@ def test_seller_is_an_unknown_trader(
         token_timestamps={tkey:(datetime.now() - timedelta(seconds=0)).timestamp()}
     )
     assert seller_is_an_unknown_trader(expected=expected_result, msg=new_msg) == expected_result, description
+
+@pytest.mark.parametrize(
+    """
+        description,
+        txType,
+        msg,
+        previous_trades,
+        amount,
+        percentage,
+        expected_result
+    """,
+    [
+        (
+            "Buy: max Solanas in token after our buy have been reached ",
+            "buy",
+            {
+                "signature":"xxxx",
+                "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                "traderPublicKey":"4xxMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
+                "txType":"buy",
+                "tokenAmount":10000.00,
+                "newTokenBalance":30582206.734745,
+                "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                "vTokensInBondingCurve":200000000.00,
+                "vSolInBondingCurve":32.500,
+                "marketCapSol":32.001
+            },
+            [
+                {
+                    "signature":"xxxx",
+                    "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                    "traderPublicKey":"1xxMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
+                    "txType":"buy",
+                    "tokenAmount":10000000.0,
+                    "newTokenBalance":30582206.734745,
+                    "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                    "vTokensInBondingCurve":200000000.0,
+                    "vSolInBondingCurve":32.0,
+                    "marketCapSol":33.0,
+                    "timestamp":1732963950.837367,
+                    "is_relevant_trade":True,
+                    "consecutive_buys":1,
+                    "consecutive_sells":0,
+                    "vSolInBondingCurve_Base":30.4,
+                    "is_non_relevant_trade_count":0,
+                    "seconds_between_buys":0,
+                    "seconds_between_sells":0,
+                    "market_inactivity":0,
+                    "max_seconds_in_market":0,
+                    "max_consecutive_buys":[
+                        {
+                            "quantity":2,
+                            "sols":1.6
+                        }
+                    ],
+                    "seller_is_an_unknown_trader": False,
+                }
+            ],
+            2.0,
+            100,
+            True
+        ),
+        (
+            "Buy: 200% of amount traded compared with bought Solanas have NOT been reached ",
+            "buy",
+            {
+                "signature":"xxxx",
+                "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                "traderPublicKey":"4xxMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
+                "txType":"buy",
+                "tokenAmount":10000.00,
+                "newTokenBalance":30582206.734745,
+                "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                "vTokensInBondingCurve":200000000.00,
+                "vSolInBondingCurve":32.500,
+                "marketCapSol":32.001
+            },
+            [
+                {
+                    "signature":"xxxx",
+                    "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                    "traderPublicKey":"1xxMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
+                    "txType":"buy",
+                    "tokenAmount":10000000.0,
+                    "newTokenBalance":30582206.734745,
+                    "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                    "vTokensInBondingCurve":200000000.0,
+                    "vSolInBondingCurve":32.0,
+                    "marketCapSol":33.0,
+                    "timestamp":1732963950.837367,
+                    "is_relevant_trade":True,
+                    "consecutive_buys":1,
+                    "consecutive_sells":0,
+                    "vSolInBondingCurve_Base":30.4,
+                    "is_non_relevant_trade_count":0,
+                    "seconds_between_buys":0,
+                    "seconds_between_sells":0,
+                    "market_inactivity":0,
+                    "max_seconds_in_market":0,
+                    "max_consecutive_buys":[
+                        {
+                            "quantity":2,
+                            "sols":1.6
+                        }
+                    ],
+                    "seller_is_an_unknown_trader": False,
+                }
+            ],
+            2.0,
+            200,
+            False
+        ),
+        (
+            "Buy: 80% of amount traded compared with bouth Solanas have been reached ",
+            "buy",
+            {
+                "signature":"xxxx",
+                "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                "traderPublicKey":"4xxMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
+                "txType":"buy",
+                "tokenAmount":10000.00,
+                "newTokenBalance":30582206.734745,
+                "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                "vTokensInBondingCurve":200000000.00,
+                "vSolInBondingCurve":32.500,
+                "marketCapSol":32.001
+            },
+            [
+                {
+                    "signature":"xxxx",
+                    "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                    "traderPublicKey":"1xxMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
+                    "txType":"buy",
+                    "tokenAmount":10000000.0,
+                    "newTokenBalance":30582206.734745,
+                    "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                    "vTokensInBondingCurve":200000000.0,
+                    "vSolInBondingCurve":32.0,
+                    "marketCapSol":33.0,
+                    "timestamp":1732963950.837367,
+                    "is_relevant_trade":True,
+                    "consecutive_buys":1,
+                    "consecutive_sells":0,
+                    "vSolInBondingCurve_Base":30.4,
+                    "is_non_relevant_trade_count":0,
+                    "seconds_between_buys":0,
+                    "seconds_between_sells":0,
+                    "market_inactivity":0,
+                    "max_seconds_in_market":0,
+                    "max_consecutive_buys":[
+                        {
+                            "quantity":1,
+                            "sols":1.8
+                        }
+                    ],
+                    "seller_is_an_unknown_trader": False,
+                }
+            ],
+            1.0,
+            80,
+            True
+        ),
+    ]
+)
+def test_max_sols_in_token_after_buying(
+    get_pubkey,
+    description,
+    txType,
+    msg,
+    previous_trades,
+    amount,
+    percentage,
+    expected_result
+):
+    tkey = "{}_timestamp".format(txType)
+    new_msg = trading_analytics(
+        msg=msg,
+        previous_trades=previous_trades,
+        amount_traded=amount,
+        pubkey=get_pubkey,
+        traders=[],
+        token_timestamps={tkey:(datetime.now() - timedelta(seconds=0)).timestamp()}
+    )
+    assert max_sols_in_token_after_buying_in_percentage(percentage=percentage, msg=new_msg, amount_traded=amount) == expected_result, description

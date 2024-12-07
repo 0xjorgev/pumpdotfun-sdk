@@ -504,6 +504,8 @@ class Pump:
                                     if token_data["is_closed"]:
                                         continue
 
+                                    # TODO: If trade_time_delta > tolerance then check if the buy txn has been done
+
                                     txn = self.trade(
                                         txtype=TxType.sell,
                                         token=mint_address,
@@ -610,6 +612,10 @@ class Pump:
                                         # Getting the mint address we'll work with
                                         # CHeck mint value for each tokeb being processed
                                         mint = msg["mint"]
+
+                                        # Key point: need to copy the token
+                                        token = self.tokens[mint].copy()
+
                                         # We'll not pay attention to closed token trades
                                         if self.tokens[mint]["is_closed"]:
                                             continue
@@ -621,17 +627,18 @@ class Pump:
                                         if "sell_timestamp" in token:
                                             time_stamps["sell_timestamp"] = token["sell_timestamp"]
 
+                                        # By default we'll always track the developer
+                                        traders = token.get("track_traders", [])
                                         # Doing some analytics like how many continuous buys have happend, etc
                                         new_msg = trading_analytics(
                                             msg=msg,
                                             previous_trades=token["trades"],
                                             amount_traded=self.trading_amount,
                                             pubkey=self.keypair.pubkey(),
-                                            traders=self.tokens[mint]["track_traders"] if "track_traders" in self.tokens[mint] else [],
+                                            traders=traders,
                                             token_timestamps=time_stamps
                                         )
                                         # Including last message with new metadata into trades list
-                                        token = self.tokens[mint].copy()        # Key point: need to copy the token
                                         if not token["trades"]:
                                             token["trades"] = [new_msg]
                                         else:
@@ -650,7 +657,9 @@ class Pump:
                                     if move_to_next_step:
                                         step_index += 1
                                         move_to_next_step = False
-                                        print("Exiting subscription")
+                                        print("Exiting subscription criteria: {}".format(
+                                            self.tokens[mint]["exit_criteria"]
+                                        ))
                                         break
 
                                 except asyncio.TimeoutError:
