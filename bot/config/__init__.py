@@ -20,8 +20,8 @@ class AuthConfig:
     # Moderate trading volumes: 0.5% to 1%.
     # High volatility or limited liquidity: 1% to 3%
     # Very volatile or low-liquidity asset: up to 5%
-    SLIPPAGE = os.environ.get("SLIPPAGE", 10)
-    FEES = float(os.environ.get("FEES", 0.000805))
+    SLIPPAGE = os.environ.get("SLIPPAGE", 40)
+    FEES = float(os.environ.get("FEES", 0.0015))
     FEES_INCREASMENT = 0.000805
     FEES_TIMEDELTA_IN_SECONDS = 1.0     # Tolerance to delays between buying and entering in 
                                         # the trade because of lower fees
@@ -34,7 +34,8 @@ class AuthConfig:
         os.environ.get("MIN_SOL_TRADING_AMOUNT", 0.5)
     )  # Minimum balance a token must have for being traded
     RETRYING_SECONDS = 1
-    RPC_URL = "https://mainnet.helius-rpc.com/?api-key=f32b640c-6877-43e7-924b-2035b448d17e"
+    RPC_URL_HELIUS = "https://mainnet.helius-rpc.com/?api-key=f32b640c-6877-43e7-924b-2035b448d17e"
+    RPC_URL = "https://amsterdam.mainnet.block-engine.jito.wtf/api/v1"
     PUMPFUN_TRANSACTION_URL = "https://pumpportal.fun/api/trade-local"
     PUMPFUN_WEBSOCKET = "wss://pumpportal.fun/api/data"
     MARKETMAKING_SOL_BUY_AMOUNT = 0.03

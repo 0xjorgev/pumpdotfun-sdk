@@ -6,7 +6,7 @@ import struct
 from enum import Enum
 from solana.rpc.async_api import AsyncClient
 from solana.rpc.types import TokenAccountOpts
-from solders.message import Message
+from solders.message import Message, MessageV0
 from solders.pubkey import Pubkey
 
 from bot.config import appconfig
@@ -39,7 +39,7 @@ async def get_solana_balance(public_key: Pubkey) -> float:
     :param wallet_address: The public address of the Solana wallet.
     :return: Balance in SOL as a float.
     """
-    async with AsyncClient(appconfig.RPC_URL) as client:
+    async with AsyncClient(appconfig.RPC_URL_HELIUS) as client:
             try:
                 # Fetch the balance (in lamports)
                 balance_response = await client.get_balance(public_key)
@@ -59,7 +59,7 @@ async def get_own_token_balance(wallet_pubkey: Pubkey, token_mint_addres: str) -
     :param token_mint_pubkey: The mint address of the token to query.
     :return: Token balance as a float.
     """
-    async with AsyncClient(appconfig.RPC_URL) as client:
+    async with AsyncClient(appconfig.RPC_URL_HELIUS) as client:
         try:
             # Fetch token mint public key owned by the wallet
             token_mint_pubkey = decode_pump_fun_token(token=token_mint_addres)
@@ -166,3 +166,53 @@ def get_instructions_from_message(msg: Message):
                 print(f"Instruction {idx} contains priceImpactPct: {decoded_data}")
     
     return parsed_instructions
+
+
+def include_instruction(msg: MessageV0):
+    """
+    Under development
+    """
+    from solders.compute_budget import set_compute_unit_limit
+    from solana.rpc.api import Client
+    from solders.instruction import CompiledInstruction
+
+    # Step 1: Add ComputeBudgetInstruction
+    compute_budget_ix = set_compute_unit_limit(1_000_000)  # Set compute unit limit to 1M
+
+    # Step 2: Get a fresh recent ∫blockhash
+    client = Client(appconfig.RPC_URL)  # Assuming RpcClient is already imported and available
+    recent_blockhash = client.get_latest_blockhash().value.blockhash
+
+    accountKeys = list(msg.account_keys)  # Convert to mutable list
+    program_id_index = len(accountKeys)  # Index for the newly added program ID
+    accountKeys.append(compute_budget_ix.program_id)  # Append the program ID
+
+    # Map the accounts in compute_budget_ix to their indices in accountKeys
+    accounts_indices = [
+        accountKeys.index(account) for account in compute_budget_ix.accounts
+    ]
+
+    new_instruction = CompiledInstruction(
+        program_id_index=program_id_index,
+        data=compute_budget_ix.data,
+        accounts=bytes(accounts_indices)
+    )
+
+    # Ensure the new instruction is not already in the list of instructions
+    if new_instruction not in msg.instructions:
+        # Add the new instruction to the message
+        updated_instructions = list(msg.instructions)  # Convert to mutable list
+        updated_instructions.append(new_instruction)
+
+        updated_msg = Message.new_with_compiled_instructions(
+            num_required_signatures=msg.header.num_required_signatures,
+            num_readonly_signed_accounts=msg.header.num_readonly_signed_accounts,
+            num_readonly_unsigned_accounts=msg.header.num_readonly_unsigned_accounts,
+            account_keys=accountKeys,
+            recent_blockhash=recent_blockhash,
+            instructions=updated_instructions
+        )
+        msg = updated_msg
+    else:
+        print("Duplicate instruction detected, skipping.")
+    return msg

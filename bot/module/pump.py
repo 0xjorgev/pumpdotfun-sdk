@@ -57,6 +57,7 @@ class Redis(Enum):
     cleanTokens = "cleanTokens"
 
 
+
 class TradeRoadmap:
     test = [
         {"step": 0, "name": "test", "subscription": Suscription.subscribeNewToken},
@@ -200,6 +201,7 @@ class Pump:
 
         self.trade_fees = appconfig.FEES
 
+
     def start_scanner(self):
         self.scanner_start_time = datetime.now()
 
@@ -208,14 +210,14 @@ class Pump:
         return balance
 
     def get_tkn_balance(self, wallet_pubkey, token_account):
-        # token_balance = asyncio.run(get_own_token_balance(
-        #         wallet_pubkey=wallet_pubkey,
-        #         token_mint_addres=token_account
-        #     )
-        # )
+        token_balance = asyncio.run(get_own_token_balance(
+                wallet_pubkey=wallet_pubkey,
+                token_mint_addres=token_account
+            )
+        )
         # TODO: get balance from redis
         # BYPASS
-        token_balance = 0
+        #token_balance = 0
         return token_balance
 
     def increase_fees(self):
@@ -816,7 +818,34 @@ class Pump:
                 break
 
         return is_valid, exit_criteria
-        
+    
+    def prepare_data(
+        self,
+        keypair: Keypair,
+        txtype: TxType,
+        token_address: str,
+        amount: float = appconfig.TRADING_DEFAULT_AMOUNT,
+        slippage: float = appconfig.SLIPPAGE,
+        priority_fee: float = appconfig.FEES
+    ):
+        """
+        Prepare body data when transaction will go through setted RPC endpoint
+        """
+        amount = amount if txtype.value == TxType.buy.value else "100%"
+        denominated_in_sol = "true" if txtype.value == TxType.buy.value else "false"
+
+        data = {
+            "publicKey": str(keypair.pubkey()),
+            "action": txtype.value,
+            "mint": token_address,
+            "amount": amount,                       # amount of SOL or tokens to trade. Can be "100%" when selling
+            "denominatedInSol": denominated_in_sol, # "true" if amount is amount of SOL, "false" if amount is number of tokens
+            "slippage": slippage,                   # percent slippage allowed
+            "priorityFee": priority_fee,            # amount to use as priority fee
+            "pool": "pump"                          # exchange to trade on. "pump" or "raydium"
+        }
+
+        return data
 
     def trade(self, txtype: TxType, token: str, keypair: Keypair, amount: float = None) -> str:
         """
@@ -842,20 +871,13 @@ class Pump:
             if self.tokens[token]["exit_criteria"] == "validate_trade_timedelta_exceeded":
                 self.increase_fees()
 
-        denominated_in_sol = "true" if txtype.value == TxType.buy.value else "false"
-        amount = amount if txtype.value == TxType.buy.value else "100%"
-
         # BUYING/SELLING tokens with an amount of Solana
-        data = {
-            "publicKey": str(keypair.pubkey()),
-            "action": txtype.value,
-            "mint": token,
-            "amount": amount,                       # amount of SOL or tokens to trade. Can be "100%" when selling
-            "denominatedInSol": denominated_in_sol, # "true" if amount is amount of SOL, "false" if amount is number of tokens
-            "slippage": appconfig.SLIPPAGE,         # percent slippage allowed
-            "priorityFee": appconfig.FEES,          # amount to use as priority fee
-            "pool": "pump"                          # exchange to trade on. "pump" or "raydium"
-        }
+        data = self.prepare_data(
+            keypair=keypair,
+            txtype=txtype,
+            token_address=token,
+            amount=amount
+        )
 
         response = None
         retries = 0
@@ -918,6 +940,9 @@ class Pump:
             
             vst = VersionedTransaction.from_bytes(response.content)
             msg = vst.message
+
+            print(msg.to_json())
+
             tx = VersionedTransaction(
                 msg,
                 [keypair]
@@ -962,21 +987,104 @@ class Pump:
         return txSignature
 
 
-    def market_making(
-        self,
-        token: str,
-        amount: int = appconfig.MARKETMAKING_SOL_BUY_AMOUNT
-    ):
-        """marketMaking will buy an amount of tokens and inmediatelly sell them
+    def nuke(self, token: str, keypair: Keypair, amount: float = appconfig.TRADING_DEFAULT_AMOUNT) -> List[str]:
+        import base58
+        txSignatures = []
+        try:
+            buy_data = self.prepare_data(
+                keypair=keypair,
+                txtype=TxType.buy,
+                token_address=token,
+                amount=amount
+            )
+            sell_data = self.prepare_data(
+                keypair=keypair,
+                txtype=TxType.sell,
+                token_address=token,
+                amount=amount
+            )
+            response = requests.post(
+                appconfig.PUMPFUN_TRANSACTION_URL,
+                headers={"Content-Type": "application/json"},
+                json=[buy_data, sell_data]
+            )
 
-        Args:
-            token (str): token mint address
-            amount (int): amount of Solana
-        """
-        keypair = Keypair.from_base58_string(appconfig.PRIVKEY)
+            if response.status_code != 200: 
+                print("Failed to generate transactions.")
+                print(response.reason)
+            else:
+                encodedTransactions = response.json()
+                encodedSignedTransactions = []
+                txSignatures = []
 
-        txn = self.buy(token=token, amount=amount, keypair=keypair)
+                def get_tokens(message):
+                    # Constants
+                    from solders.pubkey import Pubkey
+                    TOKEN_PROGRAM_ID = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+                    TRANSFER_INSTRUCTION_INDEX = 3  # Index for "transfer" instruction in SPL Token Program.
 
+                    # Iterate through the instructions
+                    for i, instruction in enumerate(message.instructions):
+                        # Check if the program_id matches the Token Program ID
+                        if instruction.program_id == TOKEN_PROGRAM_ID:
+                            # Instruction data contains the operation type
+                            data = instruction.data
+                            if len(data) > 0 and data[0] == TRANSFER_INSTRUCTION_INDEX:
+                                print(f"Instruction {i} is a Token Program 'transfer'")
+                                print("Accounts involved:", instruction.accounts)
+                                print("Instruction data (raw):", data)
+
+                for index, encodedTransaction in enumerate(encodedTransactions):
+                    msg = VersionedTransaction.from_bytes(
+                            base58.b58decode(encodedTransaction)
+                        ).message
+                    get_tokens(message=msg)
+                    signedTx = VersionedTransaction(
+                        msg,
+                        [keypair]
+                    )
+                    encodedSignedTransactions.append(base58.b58encode(bytes(signedTx)).decode())
+                    txSignatures.append(str(signedTx.signatures[0]))
+
+                jito_response = requests.post(
+                    appconfig.RPC_URL + "/bundles",
+                    headers={"Content-Type": "application/json"},
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "sendBundle",
+                        "params": [
+                            encodedSignedTransactions
+                        ]
+                    }
+                )
+                if jito_response.status_code == 200:
+                    for i, signature in enumerate(txSignatures):
+                        print(f'Nuke-> Transaction {i}: https://solscan.io/tx/{signature}')
+                else:
+                    print("Nuke-> error sending jito: {}".format(jito_response))
+
+        except Exception as e:
+            print(e)
+            
+        return txSignatures
+
+
+def study():
+    from solders.pubkey import Pubkey
+    from solana.rpc.api import Client
+    import struct
+    program_id = Pubkey.from_string("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P")
+    SOLANA_RPC_URL = "https://api.mainnet-beta.solana.com"
+    client = Client(SOLANA_RPC_URL)
+    
+
+    # Token Mint IDs
+    token_a = Pubkey.from_string("CXXsWzhbzNZLDosyebxqMtoJtnxYLRg4hTxudgoApump")
+    
+    seeds = [bytes(token_a)]
+    pool_address, _ = Pubkey.find_program_address(seeds, program_id)
+    print("Liquidity Pool Address:", pool_address)
 
 def test():
     messages = [
@@ -1114,6 +1222,7 @@ def test():
         }
     ]
 
+
     tokens = {"mint_address": {"trades": []}}
     mint = "mint_address"
     trading_amount = 0.45
@@ -1123,24 +1232,32 @@ def test():
         trader_type=Trader.sniper
     )
 
-    if "trades" not in tokens[mint]:
-        tokens[mint]["trades"] = []
+    # if "trades" not in tokens[mint]:
+    #     tokens[mint]["trades"] = []
 
-    for msg in messages:
-        # Doing some analytics like how many continuous buys have happend, etc
-        new_msg = trading_analytics(
-            msg=msg,
-            previous_trades=tokens[mint]["trades"],
-            amount_traded=trading_amount,
-            pubkey=keypair.pubkey()
-        )
-        # Including last message with new metadata into trades list
-        tokens[mint]["trades"].append(new_msg)
-        exit_trade, exis_criteria = pump.validate_criteria(msg=new_msg, criteria=TradeRoadmap.sniper_1[2]["criteria"])
-        if exit_trade:
-            print("Pump.test -> Criteria out: {}".format(exis_criteria))
+    # for msg in messages:
+    #     # Doing some analytics like how many continuous buys have happend, etc
+    #     new_msg = trading_analytics(
+    #         msg=msg,
+    #         previous_trades=tokens[mint]["trades"],
+    #         amount_traded=trading_amount,
+    #         pubkey=keypair.pubkey()
+    #     )
+    #     # Including last message with new metadata into trades list
+    #     tokens[mint]["trades"].append(new_msg)
+    #     exit_trade, exis_criteria = pump.validate_criteria(msg=new_msg, criteria=TradeRoadmap.sniper_1[2]["criteria"])
+    #     if exit_trade:
+    #         print("Pump.test -> Criteria out: {}".format(exis_criteria))
+    # print(tokens[mint]["trades"])
+    token={"mint": "ziFYNEyHmgJPGsmSA88W1fW5EUtH2VcxZhcuyxRpump"}
+    pump.add_update_token(token=token)
+    print("Balance before: {}".format(pump.balance))
+    txn_list = pump.nuke(
+        token=token["mint"],
+        keypair=keypair,
+        amount=1.48
+    )
+    balance = pump.get_balance(public_key=keypair.pubkey())
+    print("Balance after:  {}".format(balance))
 
-
-    print(tokens[mint]["trades"])
-
-#test()
+#study()
