@@ -16,7 +16,11 @@ from bot.libs.criterias import (
     max_sols_in_token_after_buying_in_percentage,
     trader_has_sold,
     seller_is_an_unknown_trader,
-    market_inactivity
+    market_inactivity,
+    buys_in_the_same_second,
+    discard_token_max_seconds_between_buys,
+    max_seconds_in_market,
+    discard_max_seconds_in_market
 )
 from bot.libs import criterias as criteria_functions
 from bot.libs.utils import (
@@ -119,7 +123,7 @@ class TradeRoadmap:
                 "name": "SAVE_TOKEN_IN_REDIS",
                 "redis": Redis.saveToken,
                 "criteria": {
-                    "capacity": 1   # How many tokens will be written to redis at the same time
+                    "capacity": 10   # How many tokens will be written to redis at the same time
                 }
             }
         },
@@ -164,6 +168,58 @@ class TradeRoadmap:
         },
         {"step": 4, "name": "UNSUBSCRIBE_TO_TOKEN", "subscription": Suscription.unsubscribeTokenTrade},
         {"step": 5, "name": "CLOSE_TOKEN", "redis": Redis.closeToken},
+    ]
+    sniper_2_detect_artifical_pump = [
+        {
+            "step": 0,
+            "name": "WAIT_FOR_TOKEN",
+            "redis": Redis.readToken,
+            "criteria": {
+                "use_all_balance": True # If True, all balance will be used if balance < trading amount
+            }
+        },
+        {
+            "step": 1,
+            "name": "TOKEN_SUBSCRIPTION",
+            "subscription": Suscription.subscribeTokenTrade,
+            # Exit criteria to move on to the next step
+            "criteria": {
+                "buys_in_the_same_second": {
+                    "min_buys_per_timestamp": 3,
+                    "min_consecutive_timestamps": 3,
+                    "seconds_since_token_genesis": 10,
+                },
+                "discard_token_max_seconds_between_buys": 3,
+                "discard_max_seconds_in_market": 10,
+                "discard_market_inactivity": 20,
+            },
+            "on_discard_token_go_to_step": 5
+        },
+        {
+            "step": 2,
+            "name": "TRADE_TOKEN_BUY",
+            "action": TxType.buy,
+            "on_error_go_to_step": 5
+        },
+        {
+            "step": 3,
+            "name": "TOKEN_SUBSCRIPTION",
+            "subscription": Suscription.subscribeTokenTrade,
+            # Exit criteria to move on to the next step
+            "criteria": {
+                "market_inactivity": 10,
+                "max_sols_in_token_after_buying_in_percentage": 500,
+                "max_seconds_in_market": 30,
+            }
+        },
+        {
+            "step": 4,
+            "name": "TRADE_TOKEN_SELL",
+            "action": TxType.sell,
+            "on_error_go_to_step": 5
+        },
+        {"step": 5, "name": "UNSUBSCRIBE_TO_TOKEN", "subscription": Suscription.unsubscribeTokenTrade},
+        {"step": 6, "name": "CLOSE_TOKEN", "redis": Redis.closeToken},
     ]
 
 
@@ -210,14 +266,16 @@ class Pump:
         return balance
 
     def get_tkn_balance(self, wallet_pubkey, token_account):
-        token_balance = asyncio.run(get_own_token_balance(
-                wallet_pubkey=wallet_pubkey,
-                token_mint_addres=token_account
-            )
-        )
-        # TODO: get balance from redis
-        # BYPASS
-        #token_balance = 0
+        token_balance = 0
+        if appconfig.APPMODE not in [AppMode.dummy.value, AppMode.simulation.value]:
+            # TODO: get balance from redis
+            # BYPASS
+            token_balance = 0
+            # token_balance = asyncio.run(get_own_token_balance(
+            #         wallet_pubkey=wallet_pubkey,
+            #         token_mint_addres=token_account
+            #     )
+            # )
         return token_balance
 
     def increase_fees(self):
@@ -567,6 +625,8 @@ class Pump:
                             if "criteria" in step:
                                 if "market_inactivity" in step["criteria"]:
                                     websocket_timeout = step["criteria"]["market_inactivity"]
+                                if "discard_market_inactivity" in step["criteria"]:
+                                    websocket_timeout = step["criteria"]["discard_market_inactivity"]
 
                             if suscription.value == Suscription.subscribeAccountTrade.value:
                                 payload["keys"] = self.accounts
@@ -662,14 +722,21 @@ class Pump:
                                         print("Exiting subscription criteria: {}".format(
                                             self.tokens[mint]["exit_criteria"]
                                         ))
+                                        if "discard_" in self.tokens[mint]["exit_criteria"]:
+                                            step_index = step["on_discard_token_go_to_step"]
+
                                         break
 
                                 except asyncio.TimeoutError:
                                     print("No trades detected during {} seconds. Moving to next step.".format(
                                         websocket_timeout
                                     ))
-                                    self.tokens[mint]["exit_criteria"] = "market_inactivity"
                                     step_index += 1
+                                    self.tokens[mint]["exit_criteria"] = "market_inactivity"
+
+                                    if "discard_market_inactivity" in step["criteria"]:
+                                        step_index = step["on_discard_token_go_to_step"]
+
                                     move_to_next_step = False
                                     break
 
@@ -764,34 +831,6 @@ class Pump:
         # TODO: relase tokens to snipers with redis recods. At this moment we're listening to one token only
         return move_to_next_step
 
-
-    def token_copytrade_suscription(self, msg: str) -> bool:
-        # TODO: remove this temporal validation for testing
-        # if not self.traders and "txType" in msg:
-        #     if TxType.buy.value == msg["txType"]:
-        #         self.add_trader(trader=msg["traderPublicKey"])
-
-        if "traderPublicKey" in msg and msg["traderPublicKey"] in self.traders:
-            if TxType.buy.value == msg["txType"]:
-                print("Starting pumping bot. Listening to trader: {} - Buy: {}. MarketCap: {}".format(
-                        msg["traderPublicKey"][:6],
-                        msg["tokenAmount"],
-                        msg["marketCapSol"]
-                    )
-                )
-
-            if TxType.sell.value == msg["txType"]:
-                print("Stoping pumping bot. Sell: {}. MarketCap: {}".format(
-                        msg["tokenAmount"],
-                        msg["marketCapSol"]
-                    )
-                )
-                self.traders = []
-                return True
-
-        return False
-
-
     def validate_criteria(self, msg: Dict, amount_traded: float, criteria: Dict) -> bool:
         """
         This function takes the incomming trading message from Pump.fun previouly
@@ -811,8 +850,9 @@ class Pump:
                 is_valid = function(parameter, msg, amount_traded)
                 print(f"validate_criteria-> Function {function_name} returned: {is_valid}")
             else:
-                print(f"validate_criteria-> Error: {function_name} not found.")
-            
+                if appconfig.APPMODE in [AppMode.dummy.value]:
+                    print(f"*** validate_criteria-> WARNING: {function_name} not found.")
+
             if is_valid:
                 exit_criteria = function_name
                 break
@@ -985,7 +1025,6 @@ class Pump:
                 time.sleep(appconfig.RETRYING_SECONDS)
 
         return txSignature
-
 
     def nuke(self, token: str, keypair: Keypair, amount: float = appconfig.TRADING_DEFAULT_AMOUNT) -> List[str]:
         import base58

@@ -13,7 +13,9 @@ from bot.libs.criterias import (
     trader_has_sold,
     validate_trade_timedelta_exceeded,
     seller_is_an_unknown_trader,
-    max_sols_in_token_after_buying_in_percentage
+    max_sols_in_token_after_buying_in_percentage,
+    buys_in_the_same_second,
+    max_seconds_in_market
 )
 
 
@@ -193,7 +195,8 @@ def test_exit_on_first_sale(expected_result, msg, description):
                             "quantity":1,
                             "sols":1.6
                         }
-                    ]
+                    ],
+                    "consecutive_buys_timestamps": {"20241212121212": 1}
                 }
             ],
             0.5,
@@ -285,7 +288,8 @@ def test_trading_analytics_buys(
                             "quantity":1,
                             "sols":1.6
                         }
-                    ]
+                    ],
+                    "consecutive_buys_timestamps": {"20241212121212": 1}
                 }
             ],
             0.5,
@@ -333,7 +337,8 @@ def test_trading_analytics_buys(
                             "quantity":1,
                             "sols":1.6
                         }
-                    ]
+                    ],
+                    "consecutive_buys_timestamps": {"20241212121212": 1}
                 }
             ],
             0.5,
@@ -418,7 +423,8 @@ def test_max_seconds_between_buys(
                             "quantity":1,
                             "sols":1.6
                         }
-                    ]
+                    ],
+                    "consecutive_buys_timestamps": {"20241212121212": 1}
                 }
             ],
             0.5,
@@ -468,7 +474,8 @@ def test_max_seconds_between_buys(
                             "quantity":1,
                             "sols":1.6
                         }
-                    ]
+                    ],
+                    "consecutive_buys_timestamps": {"20241212121212": 1}
                 }
             ],
             0.5,
@@ -550,7 +557,8 @@ def test_trader_has_sold(
                             "quantity":2,
                             "sols":1.6
                         }
-                    ]
+                    ],
+                    "consecutive_buys_timestamps": {"20241212121212": 1}
                 }
             ],
             0.5,
@@ -797,6 +805,7 @@ def test_trade_timedelta(
                         }
                     ],
                     "seller_is_an_unknown_trader": False,
+                    "consecutive_buys_timestamps": {"20241212121212": 1}
                 }
             ],
             0.5,
@@ -847,6 +856,7 @@ def test_trade_timedelta(
                         }
                     ],
                     "seller_is_an_unknown_trader": False,
+                    "consecutive_buys_timestamps": {"20241212121212": 1}
                 }
             ],
             0.5,
@@ -897,6 +907,7 @@ def test_trade_timedelta(
                         }
                     ],
                     "seller_is_an_unknown_trader": False,
+                    "consecutive_buys_timestamps": {"20241212121212": 1}
                 }
             ],
             0.5,
@@ -947,6 +958,7 @@ def test_trade_timedelta(
                         }
                     ],
                     "seller_is_an_unknown_trader": False,
+                    "consecutive_buys_timestamps": {"20241212121212": 1}
                 }
             ],
             0.5,
@@ -1031,6 +1043,7 @@ def test_seller_is_an_unknown_trader(
                         }
                     ],
                     "seller_is_an_unknown_trader": False,
+                    "consecutive_buys_timestamps": {"20241212121212": 1}
                 }
             ],
             2.0,
@@ -1081,6 +1094,7 @@ def test_seller_is_an_unknown_trader(
                         }
                     ],
                     "seller_is_an_unknown_trader": False,
+                    "consecutive_buys_timestamps": {"20241212121212": 1}
                 }
             ],
             2.0,
@@ -1131,6 +1145,7 @@ def test_seller_is_an_unknown_trader(
                         }
                     ],
                     "seller_is_an_unknown_trader": False,
+                    "consecutive_buys_timestamps": {"20241212121212": 1}
                 }
             ],
             1.0,
@@ -1159,3 +1174,342 @@ def test_max_sols_in_token_after_buying(
         token_timestamps={tkey:(datetime.now() - timedelta(seconds=0)).timestamp()}
     )
     assert max_sols_in_token_after_buying_in_percentage(percentage=percentage, msg=new_msg, amount_traded=amount) == expected_result, description
+
+
+@pytest.mark.parametrize(
+    """
+        description,
+        txType,
+        msg,
+        previous_trades,
+        expected_result
+    """,
+    [
+        (
+            "Buy: No artifical pump is found",
+            "buy",
+            {
+                "signature":"xxxx",
+                "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                "traderPublicKey":"4xxMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
+                "txType":"buy",
+                "tokenAmount":10000.00,
+                "newTokenBalance":30582206.734745,
+                "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                "vTokensInBondingCurve":200000000.00,
+                "vSolInBondingCurve":32.500,
+                "marketCapSol":32.001
+            },
+            [
+                {
+                    "signature":"xxxx",
+                    "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                    "traderPublicKey":"1xxMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
+                    "txType":"buy",
+                    "tokenAmount":10000000.0,
+                    "newTokenBalance":30582206.734745,
+                    "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                    "vTokensInBondingCurve":200000000.0,
+                    "vSolInBondingCurve":32.0,
+                    "marketCapSol":33.0,
+                    "timestamp":1732963950.837367,
+                    "is_relevant_trade":True,
+                    "consecutive_buys":1,
+                    "consecutive_sells":0,
+                    "vSolInBondingCurve_Base":30.4,
+                    "is_non_relevant_trade_count":0,
+                    "seconds_between_buys":0,
+                    "seconds_between_sells":0,
+                    "market_inactivity":0,
+                    "max_seconds_in_market":0,
+                    "max_consecutive_buys":[
+                        {
+                            "quantity":2,
+                            "sols":1.6
+                        }
+                    ],
+                    "seller_is_an_unknown_trader": False,
+                    "consecutive_buys_timestamps": {
+                        (datetime.now() - timedelta(seconds=2)).strftime("%Y%m%d%H%M%S"): 2,
+                        (datetime.now() - timedelta(seconds=1)).strftime("%Y%m%d%H%M%S"): 3,
+                        (datetime.now() - timedelta(seconds=0)).strftime("%Y%m%d%H%M%S"): 1
+                    }
+                },
+            ],
+            False
+        ),
+        (
+            "Buy: artifical pump was found!",
+            "buy",
+            {
+                "signature":"xxxx",
+                "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                "traderPublicKey":"4xxMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
+                "txType":"buy",
+                "tokenAmount":10000.00,
+                "newTokenBalance":30582206.734745,
+                "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                "vTokensInBondingCurve":200000000.00,
+                "vSolInBondingCurve":32.500,
+                "marketCapSol":32.001
+            },
+            [
+                {
+                    "signature":"xxxx",
+                    "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                    "traderPublicKey":"1xxMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
+                    "txType":"buy",
+                    "tokenAmount":10000000.0,
+                    "newTokenBalance":30582206.734745,
+                    "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                    "vTokensInBondingCurve":200000000.0,
+                    "vSolInBondingCurve":32.0,
+                    "marketCapSol":33.0,
+                    "timestamp":1732963950.837367,
+                    "is_relevant_trade":True,
+                    "consecutive_buys":1,
+                    "consecutive_sells":0,
+                    "vSolInBondingCurve_Base":30.4,
+                    "is_non_relevant_trade_count":0,
+                    "seconds_between_buys":0,
+                    "seconds_between_sells":0,
+                    "market_inactivity":0,
+                    "max_seconds_in_market":0,
+                    "max_consecutive_buys":[
+                        {
+                            "quantity":2,
+                            "sols":1.6
+                        }
+                    ],
+                    "seller_is_an_unknown_trader": False,
+                    "consecutive_buys_timestamps": {
+                        (datetime.now() - timedelta(seconds=3)).strftime("%Y%m%d%H%M%S"): 4,
+                        (datetime.now() - timedelta(seconds=2)).strftime("%Y%m%d%H%M%S"): 2,
+                        (datetime.now() - timedelta(seconds=1)).strftime("%Y%m%d%H%M%S"): 3,
+                        (datetime.now() - timedelta(seconds=0)).strftime("%Y%m%d%H%M%S"): 7
+                    }
+                },
+            ],
+            True
+        ),
+
+        (
+            "Buy: artifical pump was found OUTSIDE expected seconds since token genesis",
+            "buy",
+            {
+                "signature":"xxxx",
+                "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                "traderPublicKey":"4xxMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
+                "txType":"buy",
+                "tokenAmount":10000.00,
+                "newTokenBalance":30582206.734745,
+                "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                "vTokensInBondingCurve":200000000.00,
+                "vSolInBondingCurve":32.500,
+                "marketCapSol":32.001
+            },
+            [
+                {
+                    "signature":"xxxx",
+                    "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                    "traderPublicKey":"1xxMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
+                    "txType":"buy",
+                    "tokenAmount":10000000.0,
+                    "newTokenBalance":30582206.734745,
+                    "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                    "vTokensInBondingCurve":200000000.0,
+                    "vSolInBondingCurve":32.0,
+                    "marketCapSol":33.0,
+                    "timestamp":1732963950.837367,
+                    "is_relevant_trade":True,
+                    "consecutive_buys":1,
+                    "consecutive_sells":0,
+                    "vSolInBondingCurve_Base":30.4,
+                    "is_non_relevant_trade_count":0,
+                    "seconds_between_buys":0,
+                    "seconds_between_sells":0,
+                    "market_inactivity":0,
+                    "max_seconds_in_market":0,
+                    "max_consecutive_buys":[
+                        {
+                            "quantity":2,
+                            "sols":1.6
+                        }
+                    ],
+                    "seller_is_an_unknown_trader": False,
+                    "consecutive_buys_timestamps": {
+                        (datetime.now() - timedelta(seconds=13)).strftime("%Y%m%d%H%M%S"): 4,
+                        (datetime.now() - timedelta(seconds=6)).strftime("%Y%m%d%H%M%S"): 2,
+                        (datetime.now() - timedelta(seconds=3)).strftime("%Y%m%d%H%M%S"): 3,
+                        (datetime.now() - timedelta(seconds=0)).strftime("%Y%m%d%H%M%S"): 7
+                    }
+                },
+            ],
+            False
+        ),
+    ]
+)
+def test_buys_in_the_same_second(
+    description,
+    txType,
+    msg,
+    previous_trades,
+    expected_result,
+    get_artifical_pump_validations
+):
+    tkey = "{}_timestamp".format(txType)
+    new_msg = trading_analytics(
+        msg=msg,
+        previous_trades=previous_trades,
+        amount_traded=0.1,
+        pubkey=get_pubkey,
+        traders=[],
+        token_timestamps={tkey:(datetime.now() - timedelta(seconds=0)).timestamp()}
+    )
+    result = buys_in_the_same_second(
+        validations=get_artifical_pump_validations,
+        msg=new_msg
+    )
+    assert result == expected_result, description
+
+@pytest.mark.parametrize(
+    """
+        description,
+        txType,
+        msg,
+        previous_trades,
+        expected_result
+    """,
+    [
+        (
+            "Buy: Still in market",
+            "buy",
+            {
+                "signature":"xxxx",
+                "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                "traderPublicKey":"4xxMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
+                "txType":"buy",
+                "tokenAmount":10000.00,
+                "newTokenBalance":30582206.734745,
+                "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                "vTokensInBondingCurve":200000000.00,
+                "vSolInBondingCurve":32.500,
+                "marketCapSol":32.001
+            },
+            [
+                {
+                    "signature":"xxxx",
+                    "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                    "traderPublicKey":"1xxMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
+                    "txType":"buy",
+                    "tokenAmount":10000000.0,
+                    "newTokenBalance":30582206.734745,
+                    "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                    "vTokensInBondingCurve":200000000.0,
+                    "vSolInBondingCurve":32.0,
+                    "marketCapSol":33.0,
+                    "timestamp":1732963950.837367,
+                    "is_relevant_trade":True,
+                    "consecutive_buys":1,
+                    "consecutive_sells":0,
+                    "vSolInBondingCurve_Base":30.4,
+                    "is_non_relevant_trade_count":0,
+                    "seconds_between_buys":0,
+                    "seconds_between_sells":0,
+                    "market_inactivity":0,
+                    "max_seconds_in_market":0,
+                    "max_consecutive_buys":[
+                        {
+                            "quantity":2,
+                            "sols":1.6
+                        }
+                    ],
+                    "seller_is_an_unknown_trader": False,
+                    "consecutive_buys_timestamps": {
+                        (datetime.now() - timedelta(seconds=2)).strftime("%Y%m%d%H%M%S"): 2,
+                        (datetime.now() - timedelta(seconds=1)).strftime("%Y%m%d%H%M%S"): 3,
+                        (datetime.now() - timedelta(seconds=0)).strftime("%Y%m%d%H%M%S"): 1
+                    }
+                },
+            ],
+            False
+        ),
+        (
+            "Buy: max seconds in market has beed reached!",
+            "buy",
+            {
+                "signature":"xxxx",
+                "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                "traderPublicKey":"4xxMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
+                "txType":"buy",
+                "tokenAmount":10000.00,
+                "newTokenBalance":30582206.734745,
+                "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                "vTokensInBondingCurve":200000000.00,
+                "vSolInBondingCurve":32.500,
+                "marketCapSol":32.001
+            },
+            [
+                {
+                    "signature":"xxxx",
+                    "mint":"4Wo7nxVsPV125DW3Tr2ppPrzrnNFwidiKjWyVsifpump",
+                    "traderPublicKey":"1xxMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
+                    "txType":"buy",
+                    "tokenAmount":10000000.0,
+                    "newTokenBalance":30582206.734745,
+                    "bondingCurveKey":"HPWxfYdBitgdK4VcevMgE1VHaKgpcKJWiJh9dFAsP6SE",
+                    "vTokensInBondingCurve":200000000.0,
+                    "vSolInBondingCurve":32.0,
+                    "marketCapSol":33.0,
+                    "timestamp":1732963950.837367,
+                    "is_relevant_trade":True,
+                    "consecutive_buys":1,
+                    "consecutive_sells":0,
+                    "vSolInBondingCurve_Base":30.4,
+                    "is_non_relevant_trade_count":0,
+                    "seconds_between_buys":0,
+                    "seconds_between_sells":0,
+                    "market_inactivity":0,
+                    "max_seconds_in_market":0,
+                    "max_consecutive_buys":[
+                        {
+                            "quantity":2,
+                            "sols":1.6
+                        }
+                    ],
+                    "seller_is_an_unknown_trader": False,
+                    "consecutive_buys_timestamps": {
+                        (datetime.now() - timedelta(seconds=31)).strftime("%Y%m%d%H%M%S"): 4,
+                        (datetime.now() - timedelta(seconds=2)).strftime("%Y%m%d%H%M%S"): 2,
+                        (datetime.now() - timedelta(seconds=1)).strftime("%Y%m%d%H%M%S"): 3,
+                        (datetime.now() - timedelta(seconds=0)).strftime("%Y%m%d%H%M%S"): 7
+                    }
+                },
+            ],
+            True
+        ),
+    ]
+)
+def test_max_seconds_in_market(
+    description,
+    txType,
+    msg,
+    previous_trades,
+    expected_result,
+    get_max_seconds_in_market
+):
+    tkey = "{}_timestamp".format(txType)
+    new_msg = trading_analytics(
+        msg=msg,
+        previous_trades=previous_trades,
+        amount_traded=0.1,
+        pubkey=get_pubkey,
+        traders=[],
+        token_timestamps={tkey:(datetime.now() - timedelta(seconds=0)).timestamp()}
+    )
+    result = max_seconds_in_market(
+        time_in_market=get_max_seconds_in_market,
+        msg=new_msg
+    )
+    assert result == expected_result, description
+

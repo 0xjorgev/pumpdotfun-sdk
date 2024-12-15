@@ -7,7 +7,7 @@ from config import appconfig
 
 async def main():
     pump = Pump(
-        executor_name="sniper1",
+        executor_name="sniper2",
         trader_type=Trader.sniper
     )
 
@@ -17,7 +17,7 @@ async def main():
     )
 
     tasks = [
-        pump.subscribe(steps=TradeRoadmap.sniper_1),
+        pump.subscribe(steps=TradeRoadmap.sniper_2_detect_artifical_pump),
         #scanner.subscribe(steps=TradeRoadmap.scanner)
     ]
     start_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()

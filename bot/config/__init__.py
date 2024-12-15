@@ -12,7 +12,7 @@ class AppMode(Enum):
 class AuthConfig:
     # our code environment
     ENVIRONMENT = os.environ.get("ENVIRONMENT", "local")
-    APPMODE = os.environ.get("APPMODE", AppMode.real.value)
+    APPMODE = os.environ.get("APPMODE", AppMode.dummy.value)
 
     TIME_FORMAT = "%b %-d %-I:%M:%S %p"
 

@@ -2,7 +2,7 @@ import copy
 from datetime import datetime
 from typing import Dict, List
 from bot.config import appconfig
-from bot.libs.utils import TxType
+from bot.libs.utils import stamp_time, TxType
 
 from solders.pubkey import Pubkey
 
@@ -35,7 +35,8 @@ def trading_analytics(
     is_this_my_trade = new_msg["traderPublicKey"] == str(pubkey)
 
     # Including timestamp in incomming message
-    new_msg["timestamp"] = datetime.now().timestamp()
+    current_time = datetime.now()
+    new_msg["timestamp"] = current_time.timestamp()
     new_msg["trade_time_delta"] = 0
     # Calculating timedelta between buy/sell and received message
     if is_this_my_trade:
@@ -90,9 +91,12 @@ def trading_analytics(
         new_msg["max_consecutive_buys"] = [
             {
                 "quantity": new_msg["consecutive_buys"],
-                "sols": amount_traded if aprox == 0 else aprox if not is_this_my_trade else 0
+                "sols": amount_traded if aprox == 0 else aprox if not is_this_my_trade else 0,
+                "stamp_times": stamp_time(time=current_time)
             }
         ]
+        # This'll be used to detect possible bots producing fake pumps
+        new_msg["consecutive_buys_timestamps"] = stamp_time(time=current_time)
 
     else:
         last_msg = copy.deepcopy(previous_trades[-1])
@@ -113,12 +117,17 @@ def trading_analytics(
         # We just count non relevant trades with consecutives buys/sells
         new_msg["is_non_relevant_trade_count"] = 0 if new_msg["is_relevant_trade"] else 1
 
-        # We always keep track of the consecutive buys
+        # We always keep track of the consecutive buys and their time stamps
         new_msg["max_consecutive_buys"] = last_msg["max_consecutive_buys"]
+        new_msg["consecutive_buys_timestamps"] = last_msg["consecutive_buys_timestamps"]
 
         if new_msg["txType"].lower() == TxType.buy.value:
             new_msg["consecutive_sells"] = 0
             new_msg["seconds_between_sells"] = 0
+            new_msg["consecutive_buys_timestamps"] = stamp_time(
+                time=current_time,
+                time_stored=new_msg["consecutive_buys_timestamps"]
+            )
 
             if last_msg["txType"].lower() == TxType.buy.value:
                 # Starting counter for non relevant trades with consecutives buys/sells
@@ -134,7 +143,7 @@ def trading_analytics(
                     new_msg["is_non_relevant_trade_count"] = 0
 
                     new_msg["consecutive_buys"] = 1 + last_msg["consecutive_buys"]
-                    new_msg["seconds_between_buys"] = (datetime.now() - last_msg_timestamp).total_seconds()
+                    new_msg["seconds_between_buys"] = (current_time - last_msg_timestamp).total_seconds()
                     # Updating the last record
                     if not is_this_my_trade:
                         new_msg["max_consecutive_buys"][-1]["quantity"] = 1 + last_msg["consecutive_buys"]
@@ -265,6 +274,7 @@ def max_sols_in_token_after_buying_in_percentage(percentage: int, msg: dict, amo
     max_sols = amount_traded * percentage / 100
     return sols >= max_sols
 
+
 def validate_trade_timedelta_exceeded(expected: bool, msg: dict, amount_traded: float = None) -> bool:
     """
     Checks if the timedelta in seconds between the buy/sell and the message received is acceptable or not
@@ -280,6 +290,7 @@ def validate_trade_timedelta_exceeded(expected: bool, msg: dict, amount_traded: 
 def seller_is_an_unknown_trader(expected: bool, msg: dict, amount_traded: float = None) -> bool:
     return msg["seller_is_an_unknown_trader"] and expected
 
+
 def market_inactivity(seconds: int, msg: dict = None, amount_traded: float = None) -> bool:
     """
     Dummy fuction as it retrieves False
@@ -293,6 +304,71 @@ def market_inactivity(seconds: int, msg: dict = None, amount_traded: float = Non
     """
     return False
 
+def market_inactivity(seconds: int, msg: dict = None, amount_traded: float = None) -> bool:
+    """
+    Dummy fuction as it retrieves False
+    
+    Args:
+        seconds (int): The maximum number of seconds of inactivity allowed.
+        msg (dict): The message dictionary containing context.
+
+    Returns:
+        bool: True if the condition is met, otherwise False.
+    """
+    return False
+
+def buys_in_the_same_second(validations: dict, msg: dict, amount_traded: float = None) -> bool:
+    """
+    Check if any of the timestamp values are within a given range.
+
+    :param msg: dict, keys are timestamps, values are the counts of buy actions on each timestamp.
+    :param validations: dict[str: int]. Validations to be done: min buys per each timestamp and min consecutive relevant timestamps.
+    :return: bool, True if any value is within the range, False otherwise.
+    """
+    min_buys = False
+    cbt = msg["consecutive_buys_timestamps"]
+    token_age = validations["seconds_since_token_genesis"]
+    if len(cbt) >= validations["min_consecutive_timestamps"]:
+        # Checking if we're among the first expected seconds of a token genesis.
+        sorted_keys = sorted(cbt.keys())
+        first_timestamp = datetime.strptime(sorted_keys[0], "%Y%m%d%H%M%S")
+        last_timestamp = datetime.strptime(sorted_keys[-1], "%Y%m%d%H%M%S")
+        difference = (last_timestamp - first_timestamp).total_seconds()
+        if int(difference) <= token_age:
+            counter = 0
+            for tmstmp, times in cbt.items():
+                # We might have trades among the possible artifical pump genesis.
+                # If this happends then we'll not consider that timestamp
+                counter = counter + 1 if times  >= validations["min_buys_per_timestamp"] else counter
+            min_buys = counter >= validations["min_consecutive_timestamps"]
+
+    return min_buys
+
+
+def discard_token_max_seconds_between_buys(seconds: float, msg: dict, amount_traded: float = None) -> bool:
+    return max_seconds_between_buys(seconds=seconds, msg=msg)
+
+
+def max_seconds_in_market(time_in_market: int, msg: dict, amount_traded: float = None) -> bool:
+    """
+    Check if the max expected seconds for being in the market has been reached.
+
+    :param time_in_market: int, seconds to be in market
+    :param msg: dict, keys are timestamps, values are the counts of buy actions on each timestamp.
+    :return: bool, True if any value is within the range, False otherwise.
+    """
+    cbt = msg["consecutive_buys_timestamps"]
+    sorted_keys = sorted(cbt.keys())
+    first_timestamp = datetime.strptime(sorted_keys[0], "%Y%m%d%H%M%S")
+    current_time_in_market = (datetime.now() - first_timestamp).total_seconds()
+    return current_time_in_market >= time_in_market
+
+
+def discard_max_seconds_in_market(time_in_market: int, msg: dict, amount_traded: float = None) -> bool:
+    return max_seconds_in_market(
+        time_in_market=time_in_market,
+        msg=msg
+    )
 
 def test():
     print("#######################")

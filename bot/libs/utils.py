@@ -3,6 +3,7 @@ import base64
 import json
 import struct
 
+from datetime import datetime
 from enum import Enum
 from solana.rpc.async_api import AsyncClient
 from solana.rpc.types import TokenAccountOpts
@@ -167,7 +168,6 @@ def get_instructions_from_message(msg: Message):
     
     return parsed_instructions
 
-
 def include_instruction(msg: MessageV0):
     """
     Under development
@@ -216,3 +216,13 @@ def include_instruction(msg: MessageV0):
     else:
         print("Duplicate instruction detected, skipping.")
     return msg
+
+def stamp_time(time: datetime, time_stored: dict = None) -> dict:
+    time_stored = {} if time_stored is None else time_stored
+    tstamp = time.strftime("%Y%m%d%H%M%S")
+    if tstamp not in time_stored:
+        time_stored[tstamp] = 1
+    else:
+        time_stored[tstamp] += 1
+
+    return time_stored
