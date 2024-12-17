@@ -6,6 +6,7 @@ import time
 import websockets
 import ssl
 import certifi
+import websockets.connection
 import websockets.exceptions
 
 from bot.libs.criterias import (
@@ -175,7 +176,8 @@ class TradeRoadmap:
             "name": "WAIT_FOR_TOKEN",
             "redis": Redis.readToken,
             "criteria": {
-                "use_all_balance": True # If True, all balance will be used if balance < trading amount
+                "use_all_balance": True,    # If True, all balance will be used if balance < trading amount
+                "age_tolerance ": 2,        # Acceptable seconds since token creation in redis
             }
         },
         {
@@ -191,7 +193,7 @@ class TradeRoadmap:
                 },
                 "discard_token_max_seconds_between_buys": 3,
                 "discard_max_seconds_in_market": 10,
-                "discard_market_inactivity": 20,
+                "discard_market_inactivity": 10,
             },
             "on_discard_token_go_to_step": 5
         },
@@ -209,8 +211,8 @@ class TradeRoadmap:
             "criteria": {
                 "market_inactivity": 10,
                 "max_sols_in_token_after_buying_in_percentage": 500,
-                "max_seconds_in_market": 30,
-            }
+                "max_seconds_in_market": 60,
+            },
         },
         {
             "step": 4,
@@ -351,12 +353,20 @@ class Pump:
         # Keepalive main loop
         while not self.stop_app:
             try:
-                # SSL context is required in Mac and not on windows
-                async with websockets.connect(self.uri_data, ssl=self.ssl_context) as websocket:
+                # SSL context is required on Mac and not on windows
+                async with websockets.connect(
+                    self.uri_data,
+                    ssl=self.ssl_context,
+                    ping_interval=5
+                ) as websocket:
                     # Handle WebSocket communication
                     while True:
-                        # Step index reset if necessary
-                        step_index = 0 if step_index >= len(steps) else step_index
+                        # Starting again from step 0 and closing current websocket connection
+                        if step_index >= len(steps):
+                            step_index = 0
+                            await websocket.close()
+                            break
+
                         roadmap_name = steps[step_index]["name"]
                         if step_index == 0:
                             print("subscribe -> restarting roadmap '{}'\n".format(roadmap_name))
@@ -435,11 +445,20 @@ class Pump:
                                             # FILTERING BY TOKEN'S CREATION TIME
                                             token_creation_time = datetime.fromtimestamp(token["timestamp"])
                                             token_age = (datetime.now() - token_creation_time).total_seconds()
-                                            if token_age >= appconfig.TRADING_TOKEN_TOO_OLD_SECONDS and \
-                                                appconfig.APPMODE not in [AppMode.dummy.value, AppMode.simulation.value]:
-                                                print("Warning: susbscribe -> Token {} is too old for trading.".format(
+
+                                            age_tolerance = appconfig.TRADING_TOKEN_TOO_OLD_SECONDS
+                                            if "age_tolerance" in step["criteria"]:
+                                                age_tolerance = step["criteria"]["age_tolerance"]
+
+                                            if token_age >= age_tolerance and appconfig.APPMODE not in [AppMode.dummy.value]:
+                                                print("Warning: susbscribe -> Token {} is too old for trading. Checking it and moving on".format(
                                                     token["name"]
                                                 ))
+                                                redisdb.update_token(
+                                                    token=token,
+                                                    is_checked=True,
+                                                    is_closed=True
+                                                )
                                                 continue
 
                                             enough_balance = self.balance >= amount
@@ -471,7 +490,7 @@ class Pump:
                                             # Also closing the token if there's not enough balance for trading
                                             token = redisdb.update_token(
                                                 token=token,
-                                                is_checked=False,
+                                                is_checked=True,
                                                 is_closed=not enough_balance
                                             )
                                             self.add_update_token(token=token)
@@ -613,140 +632,128 @@ class Pump:
 
                                 step_index += 1
 
-
                         if "subscription" in step:
-                            suscription = step["subscription"]
+                            try:
+                                suscription = step["subscription"]
 
-                            payload = {
-                                "method": suscription.value,
-                            }
+                                payload = {
+                                    "method": suscription.value,
+                                }
 
-                            websocket_timeout = appconfig.TRADING_MARKETING_INACTIVITY_TIMEOUT
-                            if "criteria" in step:
-                                if "market_inactivity" in step["criteria"]:
-                                    websocket_timeout = step["criteria"]["market_inactivity"]
-                                if "discard_market_inactivity" in step["criteria"]:
-                                    websocket_timeout = step["criteria"]["discard_market_inactivity"]
+                                websocket_timeout = appconfig.TRADING_MARKETING_INACTIVITY_TIMEOUT
+                                if "criteria" in step:
+                                    if "market_inactivity" in step["criteria"]:
+                                        websocket_timeout = step["criteria"]["market_inactivity"]
+                                    if "discard_market_inactivity" in step["criteria"]:
+                                        websocket_timeout = step["criteria"]["discard_market_inactivity"]
 
-                            if suscription.value == Suscription.subscribeAccountTrade.value:
-                                payload["keys"] = self.accounts
+                                if suscription.value == Suscription.subscribeAccountTrade.value:
+                                    payload["keys"] = self.accounts
 
-                            if suscription.value == Suscription.subscribeTokenTrade.value:
-                                payload["keys"] = [mint for mint, _ in self.tokens.items() if self.tokens[mint]["is_checked"] and self.tokens[mint]["is_traded"]]
+                                if suscription.value == Suscription.subscribeTokenTrade.value:
+                                    payload["keys"] = [mint for mint, _ in self.tokens.items() if self.tokens[mint]["is_checked"] and not self.tokens[mint]["is_traded"]]
 
-                            if suscription.value == Suscription.unsubscribeTokenTrade.value:
-                                payload["keys"] = [mint for mint, _ in self.tokens.items() if self.tokens[mint]["is_closed"]]
+                                if suscription.value == Suscription.unsubscribeTokenTrade.value:
+                                    payload["keys"] = [mint for mint, _ in self.tokens.items() if self.tokens[mint]["is_closed"]]
 
-                            await websocket.send(json.dumps(payload))
+                                await websocket.send(json.dumps(payload))
 
-                            #####################
-                            # ADD HERE THE BUYING TRADEs in separate threads and fix the step so Buy and Sell are inside subscription
-                            # NOTE: test buy and sell in real before having them in threads
-                            #####################
-                            for mint, token_data in self.tokens.items():
-                                if not self.tokens[mint]["is_traded"] and \
-                                    self.tokens[mint]["is_checked"] and \
-                                    not self.tokens[mint]["is_closed"]:
-                                    pass
-                            
-                            while True:
-                                try:
-                                    message = await asyncio.wait_for(
-                                        websocket.recv(),
-                                        timeout=websocket_timeout
-                                    )
-                                    msg = json.loads(message)
-                                    move_to_next_step = False
-
-                                    # This is the first message we get when we connect
-                                    if "message" in msg:
-                                        print(msg["message"])
-                                        # If the message is about unsibscribing, then we move on to the next step
-                                        if suscription.value == Suscription.unsubscribeTokenTrade.value and "unsubscribed" in msg["message"].lower():
-                                            move_to_next_step = True
-                                        else:
-                                            continue
-
-                                    if suscription.value == Suscription.subscribeNewToken.value:
-                                        move_to_next_step = self.new_token_suscription(msg=msg, step=step, redisdb=redisdb)
-
-                                    if suscription.value == Suscription.subscribeTokenTrade.value:
-                                        # Getting the mint address we'll work with
-                                        # CHeck mint value for each tokeb being processed
-                                        mint = msg["mint"]
-
-                                        # Key point: need to copy the token
-                                        token = self.tokens[mint].copy()
-
-                                        # We'll not pay attention to closed token trades
-                                        if self.tokens[mint]["is_closed"]:
-                                            continue
-
-                                        time_stamps = {"buy_timestamp": None, "sell_timestamp": None}
-                                        if "buy_timestamp" in token:
-                                            time_stamps["buy_timestamp"] = token["buy_timestamp"]
-                                        
-                                        if "sell_timestamp" in token:
-                                            time_stamps["sell_timestamp"] = token["sell_timestamp"]
-
-                                        # By default we'll always track the developer
-                                        traders = token.get("track_traders", [])
-                                        # Doing some analytics like how many continuous buys have happend, etc
-                                        new_msg = trading_analytics(
-                                            msg=msg,
-                                            previous_trades=token["trades"],
-                                            amount_traded=self.trading_amount,
-                                            pubkey=self.keypair.pubkey(),
-                                            traders=traders,
-                                            token_timestamps=time_stamps
+                                #####################
+                                # ADD HERE THE BUYING TRADEs in separate threads and fix the step so Buy and Sell are inside subscription
+                                # NOTE: test buy and sell in real before having them in threads
+                                #####################
+                                for mint, token_data in self.tokens.items():
+                                    if not self.tokens[mint]["is_traded"] and \
+                                        self.tokens[mint]["is_checked"] and \
+                                        not self.tokens[mint]["is_closed"]:
+                                        pass
+                                
+                                while True:
+                                    try:
+                                        message = await asyncio.wait_for(
+                                            websocket.recv(),
+                                            timeout=websocket_timeout
                                         )
-                                        # Including last message with new metadata into trades list
-                                        if not token["trades"]:
-                                            token["trades"] = [new_msg]
-                                        else:
-                                            token["trades"].append(new_msg)
-                                        self.add_update_token(token=token)
-
-                                        move_to_next_step, criteria = self.validate_criteria(
-                                            msg=new_msg,
-                                            amount_traded=self.trading_amount,
-                                            criteria=step["criteria"]
-                                        )
-                                        # Including exit criteria in token for further analytics
-                                        self.tokens[mint]["exit_criteria"] = criteria
-
-                                    # Moving to the next step
-                                    if move_to_next_step:
-                                        step_index += 1
+                                        msg = json.loads(message)
                                         move_to_next_step = False
-                                        print("Exiting subscription criteria: {}".format(
-                                            self.tokens[mint]["exit_criteria"]
+
+                                        # This is the first message we get when we connect
+                                        if "message" in msg:
+                                            print(msg["message"])
+                                            # If the message is about unsibscribing, then we move on to the next step
+                                            if suscription.value == Suscription.unsubscribeTokenTrade.value and "unsubscribed" in msg["message"].lower():
+                                                move_to_next_step = True
+                                            else:
+                                                continue
+
+                                        if suscription.value == Suscription.subscribeNewToken.value:
+                                            move_to_next_step = self.new_token_suscription(msg=msg, step=step, redisdb=redisdb)
+
+                                        if suscription.value == Suscription.subscribeTokenTrade.value:
+                                            # Getting the mint address we'll work with
+                                            # CHeck mint value for each tokeb being processed
+                                            mint = msg["mint"]
+
+                                            # We'll not pay attention to closed token trades
+                                            if self.tokens[mint]["is_closed"]:
+                                                continue
+
+                                            # Key point: need to copy the token
+                                            token = self.tokens[mint].copy()
+
+                                            move_to_next_step, exit_criteria = self.token_trade_subscription(
+                                                token=token,
+                                                msg=msg,
+                                                step=step
+                                            )
+
+                                            # Including exit criteria in token for further analytics
+                                            self.tokens[mint]["exit_criteria"] = exit_criteria
+
+                                        # Moving to the next step
+                                        if move_to_next_step:
+                                            step_index += 1
+                                            move_to_next_step = False
+
+                                            current_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
+
+                                            print("Exiting subscription criteria: {} at {}".format(
+                                                self.tokens[mint]["exit_criteria"],
+                                                current_time
+                                            ))
+                                            if suscription.value == Suscription.subscribeTokenTrade.value:
+                                                if "discard_" in self.tokens[mint]["exit_criteria"]:
+                                                    step_index = step["on_discard_token_go_to_step"]
+
+                                            break
+
+                                    except asyncio.TimeoutError:
+                                        print("No trades detected during {} seconds. Moving to next step.".format(
+                                            websocket_timeout
                                         ))
-                                        if "discard_" in self.tokens[mint]["exit_criteria"]:
+                                        step_index += 1
+                                        self.tokens[mint]["exit_criteria"] = "market_inactivity"
+
+                                        if "discard_market_inactivity" in step["criteria"]:
                                             step_index = step["on_discard_token_go_to_step"]
 
+                                        move_to_next_step = False
                                         break
 
-                                except asyncio.TimeoutError:
-                                    print("No trades detected during {} seconds. Moving to next step.".format(
-                                        websocket_timeout
-                                    ))
-                                    step_index += 1
-                                    self.tokens[mint]["exit_criteria"] = "market_inactivity"
-
-                                    if "discard_market_inactivity" in step["criteria"]:
-                                        step_index = step["on_discard_token_go_to_step"]
-
-                                    move_to_next_step = False
-                                    break
-
-                        # TODO: add a safely exit way of ending the program
+                            except Exception as e:
+                                print("Exception in websocket: {}".format(e))
+                                await websocket.close()
+                                # TODO: add a safely exit way of ending the program
+                                break
 
 
 
             except websockets.exceptions.ConnectionClosedError:
                 print("Connection lost, reconnecting...")
                 await asyncio.sleep(5)  # Wait before reconnecting
+            except websockets.exceptions.ConnectionClosedOK:
+                print("Closing connection as expected")
+                break
             except Exception as e:
                 print(f"Unexpected error: {e}. Exiting program abruptly.")
                 break  # Exit on non-recoverable errors
@@ -831,6 +838,54 @@ class Pump:
         # TODO: relase tokens to snipers with redis recods. At this moment we're listening to one token only
         return move_to_next_step
 
+    def token_trade_subscription(self, token: dict,  msg: dict, step: dict) -> tuple[bool, str]:
+        """
+        Perform analysis on current and past trades and evaluate criteria to move on to the next step
+        :param token[dict]: token stored in current PUmp pbject
+        :param msg[dict]: message from Pump.fun when listening to trading tokens and modified by trading_analytics funciton.
+        :param step[dict]: current step in trade roadmap list of steps.
+        :return: move_to_next_step[bool] and exit_criteria[str] which is the reason why the trade subscription must be finished
+        """
+        time_stamps = {"buy_timestamp": None, "sell_timestamp": None}
+        if "buy_timestamp" in token:
+            time_stamps["buy_timestamp"] = token["buy_timestamp"]
+        
+        if "sell_timestamp" in token:
+            time_stamps["sell_timestamp"] = token["sell_timestamp"]
+
+        # By default we'll always track the developer
+        traders = token.get("track_traders", [])
+
+        if appconfig.APPMODE in [AppMode.dummy.value and AppMode.simulation.value]:
+            if not token.get("trades", []):
+                current_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
+                print("  First trade received at: {}".format(current_time))
+
+        # Doing some analytics like how many continuous buys have happend, etc
+        new_msg = trading_analytics(
+            msg=msg,
+            previous_trades=token["trades"],
+            amount_traded=self.trading_amount,
+            pubkey=self.keypair.pubkey(),
+            traders=traders,
+            token_timestamps=time_stamps
+        )
+        # Including last message with new metadata into trades list
+        if not token["trades"]:
+            token["trades"] = [new_msg]
+        else:
+            token["trades"].append(new_msg)
+        self.add_update_token(token=token)
+
+        move_to_next_step, criteria = self.validate_criteria(
+            msg=new_msg,
+            amount_traded=self.trading_amount,
+            criteria=step["criteria"]
+        )
+
+        return move_to_next_step, criteria
+
+
     def validate_criteria(self, msg: Dict, amount_traded: float, criteria: Dict) -> bool:
         """
         This function takes the incomming trading message from Pump.fun previouly
@@ -848,10 +903,10 @@ class Pump:
             if callable(function):
                 # Call the function with the parameter and msg
                 is_valid = function(parameter, msg, amount_traded)
-                print(f"validate_criteria-> Function {function_name} returned: {is_valid}")
+                # print(f"validate_criteria-> Function {function_name} returned: {is_valid}")
             else:
-                if appconfig.APPMODE in [AppMode.dummy.value]:
-                    print(f"*** validate_criteria-> WARNING: {function_name} not found.")
+                if appconfig.APPMODE in [AppMode.dummy.value and AppMode.simulation.value]:
+                    print(f"validate_criteria-> WARNING: {function_name} function was not found.")
 
             if is_valid:
                 exit_criteria = function_name
@@ -924,7 +979,12 @@ class Pump:
         while True:
             # Faking transaction for none real modes
             if appconfig.APPMODE not in [AppMode.real.value]:
-                print("trade -> {} MODE: returning dummy transaction".format(appconfig.APPMODE))
+                current_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
+                print("simulate trade -> {} MODE: returning dummy transaction at {}".format(
+                        appconfig.APPMODE,
+                        current_time
+                    )
+                )
                 txSignature = "txn_dummy_{}".format(txtype.value)
                 break
 
@@ -1000,10 +1060,13 @@ class Pump:
                     data=txPayload.to_json()
                 )
 
+                current_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
+
                 txSignature = response.json()['result']
-                print("Trade->{} Transaction: https://solscan.io/tx/{}".format(
+                print("Trade->{} Transaction: https://solscan.io/tx/{} at {}".format(
                     txtype.value,
-                    txSignature
+                    txSignature,
+                    current_time
                 ))
                 break
                 
@@ -1298,5 +1361,38 @@ def test():
     )
     balance = pump.get_balance(public_key=keypair.pubkey())
     print("Balance after:  {}".format(balance))
+
+
+def test_ws():
+    import asyncio
+import json
+import websockets
+
+async def subscribe_to_trades():
+    uri = "wss://mainnet.helius-rpc.com/?api-key=f32b640c-6877-43e7-924b-2035b448d17e"  # Replace with your RPC provider's WebSocket URL
+    mint_address = "65ckwQJV8x8byusvMbGh4AWtRmvH8FiD3qVBHAdW1MRP"
+
+    async with websockets.connect(uri) as websocket:
+        # Subscription payload for the token account
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "logsSubscribe",
+            "params": [
+                {"mentions": [mint_address]},
+                {"encoding": "base64"}
+            ]
+        }
+
+        # Send subscription request
+        await websocket.send(json.dumps(payload))
+
+        # Listen for messages
+        while True:
+            message = await websocket.recv()
+            print("Received trade update:", json.loads(message))
+
+# Run the async function
+#asyncio.run(subscribe_to_trades())
 
 #study()

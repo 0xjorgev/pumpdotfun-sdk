@@ -108,7 +108,7 @@ class RedisDB:
             action: TxType = None,
             amount: float = None,
             trader: Trader = None,
-            is_checked: bool = True,
+            is_checked: bool = False,
             is_closed: bool = False,
             balance: float = None,
             token_balance: float = None,
@@ -122,22 +122,19 @@ class RedisDB:
         #data["timestamp"] = data["timestamp"].isoformat()
 
         # Prepare the data to update
-        trading_time = datetime.now().timestamp()
+        current_time = datetime.now().timestamp()
         new_data = {}
-        if not is_checked:
+        if is_checked:
             new_data = {
-                "checked_time": trading_time,
-                "is_checked": True,
+                "checked_time": current_time,
+                "is_checked": is_checked,
                 "is_traded": False,
                 "is_closed": is_closed,
                 "trades": []                    # We'll keep track of every buy/sell during our trade
             }
         else:
-            for trade in trades:
-                trade["timestamp"] = trade["timestamp"]
-
             new_data = {
-                "{}_time".format(action.value): trading_time,           # New trading time as timestamp
+                "{}_time".format(action.value): current_time,           # New trading time as timestamp
                 "{}_txn".format(action.value): txn,                     # New transaction string
                 "is_traded": True,
                 "{}_amount".format(action.value): amount,               # Specifying the amount of buy/sell action

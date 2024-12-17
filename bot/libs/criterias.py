@@ -270,7 +270,7 @@ def max_sols_in_token_after_buying_in_percentage(percentage: int, msg: dict, amo
     Returns:
         bool: True if the condition is met, otherwise False.
     """
-    sols = msg["max_consecutive_buys"][-1]["sols"]
+    sols = msg["sols_in_token_after_buying"]
     max_sols = amount_traded * percentage / 100
     return sols >= max_sols
 

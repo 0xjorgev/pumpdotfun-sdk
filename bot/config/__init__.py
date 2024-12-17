@@ -12,7 +12,7 @@ class AppMode(Enum):
 class AuthConfig:
     # our code environment
     ENVIRONMENT = os.environ.get("ENVIRONMENT", "local")
-    APPMODE = os.environ.get("APPMODE", AppMode.dummy.value)
+    APPMODE = os.environ.get("APPMODE", AppMode.simulation.value)
 
     TIME_FORMAT = "%b %-d %-I:%M:%S %p"
 
@@ -55,7 +55,7 @@ class AuthConfig:
     TRADING_TOKENS_AT_THE_SAME_TIME = 1
     TRADING_EXPECTED_GAIN_IN_PERCENTAGE = 0.5
     TRADING_RETRIES = 3
-    TRADING_TOKEN_TOO_OLD_SECONDS = 15
+    TRADING_TOKEN_TOO_OLD_SECONDS = 5
     TRADING_MARKETING_INACTIVITY_TIMEOUT = 60
     SCANNER_MIN_TRADING_AMOUNT = 1.00       # Min Sols a token must have as first buy to be considered for trading
     SCANNER_WRITTING_CAPACITY = 1           # How many tokens to scanned will write at the same time in Redis
