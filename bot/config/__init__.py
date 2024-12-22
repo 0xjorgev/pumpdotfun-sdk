@@ -35,6 +35,7 @@ class AuthConfig:
     )  # Minimum balance a token must have for being traded
     RETRYING_SECONDS = 1
     RPC_URL_HELIUS = "https://mainnet.helius-rpc.com/?api-key=f32b640c-6877-43e7-924b-2035b448d17e"
+    RPC_URL_QUICKNODE = "https://orbital-hardworking-knowledge.solana-mainnet.quiknode.pro/be0d348509d4f9ae26cd7371cd7a08b7d784324d"
     RPC_URL = "https://amsterdam.mainnet.block-engine.jito.wtf/api/v1"
     PUMPFUN_TRANSACTION_URL = "https://pumpportal.fun/api/trade-local"
     PUMPFUN_WEBSOCKET = "wss://pumpportal.fun/api/data"

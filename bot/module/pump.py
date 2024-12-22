@@ -1041,15 +1041,14 @@ class Pump:
             vst = VersionedTransaction.from_bytes(response.content)
             msg = vst.message
 
-            print(msg.to_json())
-
             tx = VersionedTransaction(
                 msg,
                 [keypair]
             )
 
             config = RpcSendTransactionConfig(
-                preflight_commitment=CommitmentLevel.Confirmed
+                preflight_commitment=CommitmentLevel.Confirmed,
+                skip_preflight=True
             )
             txPayload = SendVersionedTransaction(tx, config)
 

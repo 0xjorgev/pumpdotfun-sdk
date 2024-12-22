@@ -51,6 +51,19 @@
             "ENVIRONMENT": "DUMMY"
         },
         "justMyCode": false
+    },
+    {
+        "name": "Debug utils.py",
+        "type": "python",
+        "request": "launch",
+        "program": "${workspaceFolder}/bot/libs/utils.py",
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "env": {
+            "PYTHONPATH": "${workspaceFolder}",
+            "ENVIRONMENT": "DUMMY"
+        },
+        "justMyCode": false
     }
 ]
 }

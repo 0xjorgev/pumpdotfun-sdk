@@ -1,14 +1,17 @@
 import base58
 import base64
 import json
+import requests
 import struct
 
 from datetime import datetime
 from enum import Enum
+from solana.rpc.api import Client
 from solana.rpc.async_api import AsyncClient
 from solana.rpc.types import TokenAccountOpts
 from solders.message import Message, MessageV0
 from solders.pubkey import Pubkey
+from solders.rpc.responses import GetTokenAccountsByOwnerResp
 
 from bot.config import appconfig
 
@@ -52,7 +55,71 @@ async def get_solana_balance(public_key: Pubkey) -> float:
                 print(f"Error fetching balance: {e.error_msg}")
                 return 0.0
 
-async def get_own_token_balance(wallet_pubkey: Pubkey, token_mint_addres: str) -> float:
+
+def get_token_mint_decimals(mint_address: str) -> int:
+    """
+    Fetches the decimals value for a given token mint.
+
+    Parameters:
+        mint_address (str): The mint address of the token.
+
+    Returns:
+        int: The number of decimals for the token.
+    """
+    client = Client(appconfig.RPC_URL_QUICKNODE)
+
+    mint_pubkey = Pubkey.from_string(mint_address)
+
+    # Fetch the mint account info
+    response = client.get_account_info(mint_pubkey)
+    if not response.value:
+        raise ValueError(f"Mint account {mint_address} not found")
+    
+    from spl.token._layouts import MINT_LAYOUT, ACCOUNT_LAYOUT
+    mint_data = MINT_LAYOUT.parse(response.value.data)
+    decimals = mint_data.decimals
+
+    return decimals
+
+
+async def count_associated_token_accounts(
+    wallet_pubkey: Pubkey
+) -> int:
+    """
+    Fetch the amount of associated token accounts an address holds
+
+    :param wallet_pubkey: The public address of the Solana wallet.
+    :return: amount of associated token accounts
+    """
+    async with AsyncClient(appconfig.RPC_URL_QUICKNODE) as client:
+        try:
+
+            program_id = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+            opts = TokenAccountOpts(
+                mint=None,
+                program_id=program_id,         # (Optional) SPL token program ID
+                encoding="base64"        # (Optional) Response encoding
+            )
+
+            response = await client.get_token_accounts_by_owner(
+                owner=wallet_pubkey,
+                opts=opts,
+            )
+            await asyncio.sleep(1)
+            token_accounts_response = GetTokenAccountsByOwnerResp.from_json(response.to_json())
+
+            if not token_accounts_response.value:
+                return 0
+            
+            return len(token_accounts_response.value) 
+            
+        except:
+            return 0
+
+async def detect_dust_token_accounts(
+    wallet_pubkey: Pubkey,
+    token_mint_addres: str = None
+) -> list[dict]:
     """
     Fetches the balance of a specific token in a given Solana wallet.
 
@@ -60,41 +127,116 @@ async def get_own_token_balance(wallet_pubkey: Pubkey, token_mint_addres: str) -
     :param token_mint_pubkey: The mint address of the token to query.
     :return: Token balance as a float.
     """
-    async with AsyncClient(appconfig.RPC_URL_HELIUS) as client:
+    min_token_balance = 1
+    max_retries = 5
+    async with AsyncClient(appconfig.RPC_URL_QUICKNODE) as client:
         try:
-            # Fetch token mint public key owned by the wallet
-            token_mint_pubkey = decode_pump_fun_token(token=token_mint_addres)
 
+            program_id = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
             opts = TokenAccountOpts(
-                mint=token_mint_pubkey,  # The mint address of the token
-                program_id=None,             # (Optional) SPL token program ID
+                mint=None,
+                program_id=program_id,         # (Optional) SPL token program ID
                 encoding="base64"        # (Optional) Response encoding
             )
+
             response = await client.get_token_accounts_by_owner(
                 owner=wallet_pubkey,
                 opts=opts,
             )
+            await asyncio.sleep(1)
+            token_accounts_response = GetTokenAccountsByOwnerResp.from_json(response.to_json())
 
-            if len(response.value) == 0:
-                raise Exception("No token accounts found for this mint address.")
+            if not token_accounts_response.value:
+                return []
+            
+            # Fetch the current Solana price
+            sol_price = get_solana_price()
 
-            # Assume the first token account holds the balance (adjust for multisig if needed)
-            token_pubkey = response.value[0].pubkey
-            # Fetch the token balance
-            balance_response = await client.get_token_account_balance(
-                token_pubkey
-            )
-            balance_data = balance_response.value
-            raw_balance = int(balance_data.amount)
-            decimals = int(balance_data.decimals)
+            accounts = []
+            counter = 0
+            for account in token_accounts_response.value:
+                counter +=1
+    
+                associated_token_account = str(account.pubkey)
+                if token_mint_addres and token_mint_addres != associated_token_account:
+                    continue
 
-            # Convert to human-readable balance
-            readable_balance = raw_balance / (10 ** decimals)
-            return readable_balance
+                data = account.account.data
+                if len(data) != 165:
+                    raise ValueError("Invalid data length for an SPL token account")
+                
+                # Unpack the data using the SPL token account layout
+                (
+                    mint,                     # 32 bytes
+                    owner,                    # 32 bytes
+                    amount_lamports,          # 8 bytes (token balance)
+                    delegate_option,          # 4 bytes (delegate option: 0 or 1)
+                    delegate,                 # 32 bytes (delegate public key)
+                    state,                    # 1 byte (state of the account)
+                    is_native_option,         # 4 bytes (is_native option: 0 or 1)
+                    is_native,                # 8 bytes (amount of native SOL if is_native is set)
+                    delegated_amount,         # 8 bytes (amount of tokens delegated)
+                    close_authority_option,   # 4 bytes (close authority option: 0 or 1)
+                    close_authority           # 32 bytes (close authority public key)
+                ) = struct.unpack("<32s32sQ4s32sB4sQ8s4s32s", data)
+
+                mint_address = str(Pubkey.from_bytes(mint))
+
+                retries_counter = 0
+                decimals = 0
+                while True:
+                    try:
+                        if retries_counter >= max_retries:
+                            print("detect_dust_token_accounts-> Max retries of {} reached when calling get_token_mint_decimals")
+                            return accounts
+                        decimals = get_token_mint_decimals(mint_address=mint_address)
+                        break
+                    except:
+                        print("sleeping 1sec at counter {}...".format(counter))
+                        await asyncio.sleep(1)
+                        retries_counter += 1
+                amount = amount_lamports / 10**decimals
+
+                # Fetch SOL balance of the associated token account
+                retries_counter = 0
+                sol_balance_response = 0
+                while True:
+                    try:
+                        if retries_counter >= max_retries:
+                            print("detect_dust_token_accounts-> Max retries of {} reached when calling get_balance")
+                            return accounts
+                        sol_balance_response = await client.get_balance(Pubkey.from_string(associated_token_account))
+                        break
+                    except:
+                        print("sleeping at counter {}...".format(counter))
+                        await asyncio.sleep(1)
+                        retries_counter += 1
+                
+                sol_balance = sol_balance_response.value / 1e9  # Convert lamports to SOL
+                sol_balance_usd = sol_balance * sol_price  # Calculate SOL value in USD
+
+                accounts.append(
+                    {
+                        "token_mint": str(Pubkey(mint)),
+                        "associated_token_account": associated_token_account,
+                        "owner": str(Pubkey(owner)),
+                        "token_balance": amount,
+                        "sol_balance": sol_balance,
+                        "sol_balance_usd": sol_balance_usd,
+                        "is_dust": amount < min_token_balance,
+                        "delegate": str(Pubkey(delegate)) if delegate_option != b"\x00" else None,
+                        "state": state,
+                        "is_native": is_native == b"\x01",
+                        "delegated_amount": delegated_amount,
+                        "close_authority": str(Pubkey(close_authority)) if close_authority_option != b"\x00" else None,
+                    }
+                )
+
+            return accounts
 
         except Exception as e:
             print(f"Error fetching token '{token_mint_addres}' balance: {e}")
-            return 0.0
+            return []
 
 def decode_pump_fun_token(token: str) -> Pubkey:
     """
@@ -226,3 +368,34 @@ def stamp_time(time: datetime, time_stored: dict = None) -> dict:
         time_stored[tstamp] += 1
 
     return time_stored
+
+
+def get_solana_price() -> float:
+    """
+    Retrieves the current Solana price in USD using a public API.
+
+    Returns:
+        float: Current Solana price in USD.
+    """
+    try:
+        response = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd")
+        response.raise_for_status()
+        price_data = response.json()
+        return price_data["solana"]["usd"]
+    except Exception as e:
+        raise RuntimeError(f"Failed to fetch Solana price: {e}")
+
+async def test():
+    solana_address = "4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb"
+    solana_address = "onK5ruraCpbvjzWjqvJ3uBXgXapNX6ddB799qsNipeR"
+    account = "DnJaA2C7Ak93HGvACoCQ9ULacYuq7BuiYMWtWePekzJH"
+    account = None
+    token_accounts = await count_associated_token_accounts(wallet_pubkey=solana_address)
+    print("Accounts: {}".format(token_accounts))
+    token_accounts_data = await detect_dust_token_accounts(wallet_pubkey=solana_address, token_mint_addres=account)
+    print("USD being held: {}".format(
+        sum(account["sol_balance_usd"] for account in token_accounts_data if account["is_dust"])
+    ))
+
+import asyncio
+asyncio.run(test())
