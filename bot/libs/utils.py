@@ -1,8 +1,10 @@
 import base58
 import base64
 import json
+import random
 import requests
 import struct
+import time
 
 from datetime import datetime
 from enum import Enum
@@ -82,6 +84,47 @@ def get_token_mint_decimals(mint_address: str) -> int:
     return decimals
 
 
+async def get_token_accounts_by_owner(wallet_address=str)->dict:
+    response = {}
+    async with AsyncClient(appconfig.RPC_URL_HELIUS) as client:
+        data = {
+            "jsonrpc": "2.0",
+            "id": "test",
+            "method": "getTokenAccountsByOwner",
+            "params": [
+                wallet_address,
+                {
+                    "programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+                },
+                {
+                    "encoding": "jsonParsed"
+                }
+            ]
+        }
+        try:
+            response = requests.post(
+                    url=appconfig.RPC_URL_HELIUS,
+                    json=data,
+                    headers={"Content-Type": "application/json"}
+                )
+            if response.status_code != 200:
+                print("get_token_accounts_by_owner: Bad status code '{}' recevied for token {}".format(
+                        response.status_code,
+                        wallet_address
+                    )
+                )
+                return response
+
+            content = response.json()
+            response = content["result"]["value"]
+
+            return response
+        except Exception as e:
+            print("get_token_accounts_by_owner-> Error: {}".format(e))
+            return response
+
+    
+
 async def count_associated_token_accounts(
     wallet_pubkey: Pubkey
 ) -> int:
@@ -91,30 +134,87 @@ async def count_associated_token_accounts(
     :param wallet_pubkey: The public address of the Solana wallet.
     :return: amount of associated token accounts
     """
-    async with AsyncClient(appconfig.RPC_URL_QUICKNODE) as client:
-        try:
+    total = {
+        "total_accounts": 0,
+        "burnable_accounts": 0,
+        "accounts_for_manual_review": 0,
+        "recoverable_balance": 0,
+        "recoverable_balance_usd": 0
+    }
+    min_token_value = 1
+    account_samples = 5
+    retries = 5
 
-            program_id = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
-            opts = TokenAccountOpts(
-                mint=None,
-                program_id=program_id,         # (Optional) SPL token program ID
-                encoding="base64"        # (Optional) Response encoding
-            )
+    # TODO: implement token's black list (like USDC, etc)
+    token_blacklist = []
+    original_accounts = await get_token_accounts_by_owner(wallet_address=str(wallet_pubkey))
+    usd_sol_value = 0
 
-            response = await client.get_token_accounts_by_owner(
-                owner=wallet_pubkey,
-                opts=opts,
-            )
-            await asyncio.sleep(1)
-            token_accounts_response = GetTokenAccountsByOwnerResp.from_json(response.to_json())
+    accounts = [
+        account for account in original_accounts 
+        if account["account"]["data"]["parsed"]["info"]["mint"] not in token_blacklist
+    ]
 
-            if not token_accounts_response.value:
-                return 0
-            
-            return len(token_accounts_response.value) 
-            
-        except:
-            return 0
+    if accounts:
+        usd_sol_value = get_solana_price()
+        if usd_sol_value == 0:
+            return total
+        # Calculating accounts balance as AN APROXIMATION to speed up this process
+        account_sample_list = accounts
+        if len(accounts) > account_samples:
+            my_list = list(range(len(accounts)))
+            # Generate X random positions
+            random_positions = random.sample(range(len(my_list)), account_samples)
+            # Get the 5 random values from the list
+            account_sample_list = [my_list[pos] for pos in random_positions]
+
+        sum_balance = 0
+        for index in account_sample_list:
+            associated_tokan_account = accounts[index]["pubkey"]
+            sum_balance += await get_solana_balance(public_key=Pubkey.from_string(associated_tokan_account))
+
+        average_balance = sum_balance / len(account_sample_list)
+
+        total["recoverable_balance"] = average_balance * len(accounts)
+        total["recoverable_balance_usd"] = total["recoverable_balance"] * usd_sol_value
+
+    accounts_for_manual_review = 0
+    for account in accounts:
+        mint = account["account"]["data"]["parsed"]["info"]["mint"]
+        token_ammount = account["account"]["data"]["parsed"]["info"]["tokenAmount"]["uiAmount"]
+
+        # # Get token value
+        # counter = 0
+        # metadata = {}
+        # while True:
+        #     metadata = get_token_metadata(token_address=mint)
+        #     if metadata:
+        #         retries = 0
+        #         break
+        #     counter += 1
+        #     time.sleep(counter)
+        
+        # if not metadata:
+        #     # Forcing out with what we have
+        #     return total
+        
+        # if metadata["insufficient_data"]:
+        #     accounts_for_manual_review += 1
+        #     continue
+
+        # token_value = metadata["price_info"]["price_per_token"]
+
+        token_value = 1
+        total["total_accounts"] += 1
+        if token_ammount * token_value < min_token_value:
+            total["burnable_accounts"] += 1
+        else:
+            print("token {} has significan value".format(mint))
+
+    total["accounts_for_manual_review"] = accounts_for_manual_review
+
+    return total
+
 
 async def detect_dust_token_accounts(
     wallet_pubkey: Pubkey,
@@ -129,7 +229,7 @@ async def detect_dust_token_accounts(
     """
     min_token_balance = 1
     max_retries = 5
-    async with AsyncClient(appconfig.RPC_URL_QUICKNODE) as client:
+    async with AsyncClient(appconfig.RPC_URL_HELIUS) as client:
         try:
 
             program_id = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
@@ -369,7 +469,6 @@ def stamp_time(time: datetime, time_stored: dict = None) -> dict:
 
     return time_stored
 
-
 def get_solana_price() -> float:
     """
     Retrieves the current Solana price in USD using a public API.
@@ -377,24 +476,99 @@ def get_solana_price() -> float:
     Returns:
         float: Current Solana price in USD.
     """
+    retries = 5
+    price = 0
+    counter = 0
+    while True:
+        try:
+            if counter >= retries:
+                break
+
+            response = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd")
+            response.raise_for_status()
+            price_data = response.json()
+            price = price_data["solana"]["usd"]
+            break
+        except Exception as e:
+            counter += 1
+            print("get_solana_price Error: Failed to fetch Solana price. retriying {} of {}".format(
+                counter,
+                retries
+            ))
+            time.sleep(counter)
+    
+    return price
+
+def get_token_metadata(token_address: str)->dict:
+    metadata = {}
+
+    data = {
+        "jsonrpc": "2.0",
+        "id": "test",
+        "method": "getAsset",
+        "params": {
+            "id": token_address
+        }
+    }
     try:
-        response = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd")
-        response.raise_for_status()
-        price_data = response.json()
-        return price_data["solana"]["usd"]
+        response = requests.post(
+                url=appconfig.RPC_URL_HELIUS,
+                json=data,
+                headers={"Content-Type": "application/json"}
+            )
+        if response.status_code != 200:
+            print("get_metadata: Bad status code '{}' recevied for token {}".format(
+                    response.status_code,
+                    token_address
+                )
+            )
+            return metadata
+        content = response.json()
+        metadata.update(content["result"]["content"]["files"][0])
+        metadata.update(content["result"]["content"]["metadata"])
+        metadata["authority"] = content["result"]["authorities"][0]["address"]
+        metadata["supply"] = content["result"]["token_info"]["supply"]
+        metadata["decimals"] = content["result"]["token_info"]["decimals"]
+        metadata["token_program"] = content["result"]["token_info"]["token_program"]
+        metadata["insufficient_data"] = False
+
+        if "price_info" in content["result"]["token_info"]:
+            metadata["price_info"] = content["result"]["token_info"]["price_info"]
+        else:
+            # It might happen that the token comes with no price info. IF so, we'll mark the token
+            metadata["price_info"] = 0
+            metadata["insufficient_data"] = True
+
     except Exception as e:
-        raise RuntimeError(f"Failed to fetch Solana price: {e}")
+        print("get_metadata: Error retrieving metadata for token {}".format(token_address))
+    return metadata
+
+
+
 
 async def test():
     solana_address = "4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb"
-    solana_address = "onK5ruraCpbvjzWjqvJ3uBXgXapNX6ddB799qsNipeR"
+    #solana_address = "onK5ruraCpbvjzWjqvJ3uBXgXapNX6ddB799qsNipeR"
+    accounts = await get_token_accounts_by_owner(wallet_address=solana_address)
+
+    token_address = "FFqR2bk3ULB1WuYECRbooxPpbYvvZBp3z9Uc94Pqpump"
+    metadata = get_token_metadata(token_address=token_address)
+    print(metadata)
+
+    
     account = "DnJaA2C7Ak93HGvACoCQ9ULacYuq7BuiYMWtWePekzJH"
     account = None
-    token_accounts = await count_associated_token_accounts(wallet_pubkey=solana_address)
+    token_accounts = await count_associated_token_accounts(wallet_pubkey=Pubkey.from_string(solana_address))
     print("Accounts: {}".format(token_accounts))
-    token_accounts_data = await detect_dust_token_accounts(wallet_pubkey=solana_address, token_mint_addres=account)
+    token_accounts_data = await detect_dust_token_accounts(
+        wallet_pubkey=Pubkey.from_string(solana_address),
+        token_mint_addres=account
+    )
     print("USD being held: {}".format(
         sum(account["sol_balance_usd"] for account in token_accounts_data if account["is_dust"])
+    ))
+    print("Sols being held: {}".format(
+        sum(account["sol_balance"] for account in token_accounts_data if account["is_dust"])
     ))
 
 import asyncio
