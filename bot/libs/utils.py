@@ -138,12 +138,11 @@ async def count_associated_token_accounts(
         "total_accounts": 0,
         "burnable_accounts": 0,
         "accounts_for_manual_review": 0,
-        "recoverable_balance": 0,
-        "recoverable_balance_usd": 0
+        "rent_balance": 0,
+        "rent_balance_usd": 0
     }
     min_token_value = 1
     account_samples = 5
-    retries = 5
 
     # TODO: implement token's black list (like USDC, etc)
     token_blacklist = []
@@ -175,34 +174,13 @@ async def count_associated_token_accounts(
 
         average_balance = sum_balance / len(account_sample_list)
 
-        total["recoverable_balance"] = average_balance * len(accounts)
-        total["recoverable_balance_usd"] = total["recoverable_balance"] * usd_sol_value
+        total["rent_balance"] = average_balance * len(accounts)
+        total["rent_balance_usd"] = total["rent_balance"] * usd_sol_value
 
     accounts_for_manual_review = 0
     for account in accounts:
         mint = account["account"]["data"]["parsed"]["info"]["mint"]
         token_ammount = account["account"]["data"]["parsed"]["info"]["tokenAmount"]["uiAmount"]
-
-        # # Get token value
-        # counter = 0
-        # metadata = {}
-        # while True:
-        #     metadata = get_token_metadata(token_address=mint)
-        #     if metadata:
-        #         retries = 0
-        #         break
-        #     counter += 1
-        #     time.sleep(counter)
-        
-        # if not metadata:
-        #     # Forcing out with what we have
-        #     return total
-        
-        # if metadata["insufficient_data"]:
-        #     accounts_for_manual_review += 1
-        #     continue
-
-        # token_value = metadata["price_info"]["price_per_token"]
 
         token_value = 1
         total["total_accounts"] += 1
@@ -218,125 +196,109 @@ async def count_associated_token_accounts(
 
 async def detect_dust_token_accounts(
     wallet_pubkey: Pubkey,
-    token_mint_addres: str = None
+    token_mint_addres: str = None,
+    do_balance_aproximation: bool = True
 ) -> list[dict]:
     """
     Fetches the balance of a specific token in a given Solana wallet.
 
     :param wallet_pubkey: The public address of the Solana wallet.
-    :param token_mint_pubkey: The mint address of the token to query.
     :return: Token balance as a float.
     """
-    min_token_balance = 1
-    max_retries = 5
+    min_token_value = 1
+    account_samples = 5
+    working_balance = 0
     async with AsyncClient(appconfig.RPC_URL_HELIUS) as client:
         try:
+            # TODO: implement token's black list (like USDC, etc)
+            token_blacklist = []
+            original_accounts = await get_token_accounts_by_owner(wallet_address=str(wallet_pubkey))
+            accounts = [
+                account for account in original_accounts 
+                if account["account"]["data"]["parsed"]["info"]["mint"] not in token_blacklist
+            ]
 
-            program_id = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
-            opts = TokenAccountOpts(
-                mint=None,
-                program_id=program_id,         # (Optional) SPL token program ID
-                encoding="base64"        # (Optional) Response encoding
-            )
-
-            response = await client.get_token_accounts_by_owner(
-                owner=wallet_pubkey,
-                opts=opts,
-            )
-            await asyncio.sleep(1)
-            token_accounts_response = GetTokenAccountsByOwnerResp.from_json(response.to_json())
-
-            if not token_accounts_response.value:
+            if not accounts:
                 return []
             
             # Fetch the current Solana price
             sol_price = get_solana_price()
+            if sol_price == 0:
+                return []
 
-            accounts = []
+            if do_balance_aproximation:
+                account_sample_list = accounts
+                if len(accounts) > account_samples:
+                    my_list = list(range(len(accounts)))
+                    # Generate X random positions
+                    random_positions = random.sample(range(len(my_list)), account_samples)
+                    # Get the 5 random values from the list
+                    account_sample_list = [my_list[pos] for pos in random_positions]
+
+                sum_balance = 0
+                for index in account_sample_list:
+                    associated_tokan_account = accounts[index]["pubkey"]
+                    sum_balance += await get_solana_balance(public_key=Pubkey.from_string(associated_tokan_account))
+
+                working_balance = sum_balance / len(account_sample_list)
+
             counter = 0
-            for account in token_accounts_response.value:
+            account_output = []
+            for account in accounts:
                 counter +=1
-    
-                associated_token_account = str(account.pubkey)
-                if token_mint_addres and token_mint_addres != associated_token_account:
-                    continue
 
-                data = account.account.data
-                if len(data) != 165:
-                    raise ValueError("Invalid data length for an SPL token account")
+                mint = account["account"]["data"]["parsed"]["info"]["mint"]
+                owner = account["account"]["data"]["parsed"]["info"]["owner"]
+                token_amount = account["account"]["data"]["parsed"]["info"]["tokenAmount"]["uiAmount"]
+                decimals = account["account"]["data"]["parsed"]["info"]["tokenAmount"]["decimals"]
+                associated_token_account = account["pubkey"]
+
+                metadata = get_token_metadata(token_address=mint)
+
+                token_price = metadata["price_info"]["price_per_token"]
+                token_value = token_price * token_amount
                 
-                # Unpack the data using the SPL token account layout
-                (
-                    mint,                     # 32 bytes
-                    owner,                    # 32 bytes
-                    amount_lamports,          # 8 bytes (token balance)
-                    delegate_option,          # 4 bytes (delegate option: 0 or 1)
-                    delegate,                 # 32 bytes (delegate public key)
-                    state,                    # 1 byte (state of the account)
-                    is_native_option,         # 4 bytes (is_native option: 0 or 1)
-                    is_native,                # 8 bytes (amount of native SOL if is_native is set)
-                    delegated_amount,         # 8 bytes (amount of tokens delegated)
-                    close_authority_option,   # 4 bytes (close authority option: 0 or 1)
-                    close_authority           # 32 bytes (close authority public key)
-                ) = struct.unpack("<32s32sQ4s32sB4sQ8s4s32s", data)
+                uri = metadata["uri"]
+                cdn_uri = metadata["cdn_uri"]
+                mime = metadata["mime"]
+                description = metadata["description"] if "description" in metadata else ""
+                name = metadata["name"].strip()
+                symbol = metadata["symbol"].strip()
+                authority = metadata["authority"]
+                supply =  metadata["supply"]
+                token_program = metadata["token_program"]
+                insufficient_data = metadata["insufficient_data"]  # Non listed tokens returns a zero price
 
-                mint_address = str(Pubkey.from_bytes(mint))
-
-                retries_counter = 0
-                decimals = 0
-                while True:
-                    try:
-                        if retries_counter >= max_retries:
-                            print("detect_dust_token_accounts-> Max retries of {} reached when calling get_token_mint_decimals")
-                            return accounts
-                        decimals = get_token_mint_decimals(mint_address=mint_address)
-                        break
-                    except:
-                        print("sleeping 1sec at counter {}...".format(counter))
-                        await asyncio.sleep(1)
-                        retries_counter += 1
-                amount = amount_lamports / 10**decimals
-
-                # Fetch SOL balance of the associated token account
-                retries_counter = 0
-                sol_balance_response = 0
-                while True:
-                    try:
-                        if retries_counter >= max_retries:
-                            print("detect_dust_token_accounts-> Max retries of {} reached when calling get_balance")
-                            return accounts
-                        sol_balance_response = await client.get_balance(Pubkey.from_string(associated_token_account))
-                        break
-                    except:
-                        print("sleeping at counter {}...".format(counter))
-                        await asyncio.sleep(1)
-                        retries_counter += 1
-                
-                sol_balance = sol_balance_response.value / 1e9  # Convert lamports to SOL
-                sol_balance_usd = sol_balance * sol_price  # Calculate SOL value in USD
-
-                accounts.append(
+                account_output.append(
                     {
-                        "token_mint": str(Pubkey(mint)),
+                        "token_mint": mint,
                         "associated_token_account": associated_token_account,
-                        "owner": str(Pubkey(owner)),
-                        "token_balance": amount,
-                        "sol_balance": sol_balance,
-                        "sol_balance_usd": sol_balance_usd,
-                        "is_dust": amount < min_token_balance,
-                        "delegate": str(Pubkey(delegate)) if delegate_option != b"\x00" else None,
-                        "state": state,
-                        "is_native": is_native == b"\x01",
-                        "delegated_amount": delegated_amount,
-                        "close_authority": str(Pubkey(close_authority)) if close_authority_option != b"\x00" else None,
+                        "owner": owner,
+                        "token_amount": token_amount,
+                        "token_price": token_price,
+                        "token_value": token_value,
+                        "decimals": decimals,
+                        "sol_balance": working_balance,
+                        "sol_balance_usd": working_balance * sol_price,
+                        "is_dust": token_value < min_token_value,
+                        "uri": uri,
+                        "cdn_uri": cdn_uri,
+                        "mime": mime,
+                        "description": description,
+                        "name": name,
+                        "symbol": symbol,
+                        "authority": authority,
+                        "supply": supply,
+                        "token_program": token_program,
+                        "insufficient_data": insufficient_data,
                     }
                 )
 
-            return accounts
+            return account_output
 
         except Exception as e:
             print(f"Error fetching token '{token_mint_addres}' balance: {e}")
-            return []
+            return account_output
 
 def decode_pump_fun_token(token: str) -> Pubkey:
     """
@@ -510,56 +472,76 @@ def get_token_metadata(token_address: str)->dict:
             "id": token_address
         }
     }
-    try:
-        response = requests.post(
-                url=appconfig.RPC_URL_HELIUS,
-                json=data,
-                headers={"Content-Type": "application/json"}
-            )
-        if response.status_code != 200:
-            print("get_metadata: Bad status code '{}' recevied for token {}".format(
-                    response.status_code,
-                    token_address
+    retries = 5
+    counter = 0
+    while True:
+        if counter >= retries:
+            break
+
+        try:
+            response = requests.post(
+                    url=appconfig.RPC_URL_HELIUS,
+                    json=data,
+                    headers={"Content-Type": "application/json"}
+                )
+            if response.status_code != 200:
+                counter += 1
+                print("get_metadata: Bad status code '{}' recevied for token {}. Retries {} of {}".format(
+                        response.status_code,
+                        token_address,
+                        counter,
+                        retries
+                    )
+                )
+                time.sleep(counter)
+                continue
+
+            content = response.json()
+            metadata.update(content["result"]["content"]["files"][0])
+            metadata.update(content["result"]["content"]["metadata"])
+            metadata["authority"] = content["result"]["authorities"][0]["address"]
+            metadata["supply"] = content["result"]["token_info"]["supply"]
+            metadata["decimals"] = content["result"]["token_info"]["decimals"]
+            metadata["token_program"] = content["result"]["token_info"]["token_program"]
+            metadata["insufficient_data"] = False
+
+            if "price_info" in content["result"]["token_info"]:
+                metadata["price_info"] = content["result"]["token_info"]["price_info"]
+            else:
+                # It might happen that the token comes with no price info. IF so, we'll mark the token
+                metadata["price_info"] = {"price_per_token": 0}
+
+                metadata["insufficient_data"] = True
+            break
+
+        except Exception as e:
+            counter += 1
+            print("get_metadata: Error retrieving metadata for token {}. Retries {} of {}".format(
+                    token_address,
+                    counter,
+                    retries
                 )
             )
-            return metadata
-        content = response.json()
-        metadata.update(content["result"]["content"]["files"][0])
-        metadata.update(content["result"]["content"]["metadata"])
-        metadata["authority"] = content["result"]["authorities"][0]["address"]
-        metadata["supply"] = content["result"]["token_info"]["supply"]
-        metadata["decimals"] = content["result"]["token_info"]["decimals"]
-        metadata["token_program"] = content["result"]["token_info"]["token_program"]
-        metadata["insufficient_data"] = False
+            time.sleep(counter)
 
-        if "price_info" in content["result"]["token_info"]:
-            metadata["price_info"] = content["result"]["token_info"]["price_info"]
-        else:
-            # It might happen that the token comes with no price info. IF so, we'll mark the token
-            metadata["price_info"] = 0
-            metadata["insufficient_data"] = True
-
-    except Exception as e:
-        print("get_metadata: Error retrieving metadata for token {}".format(token_address))
     return metadata
-
 
 
 
 async def test():
     solana_address = "4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb"
     #solana_address = "onK5ruraCpbvjzWjqvJ3uBXgXapNX6ddB799qsNipeR"
-    accounts = await get_token_accounts_by_owner(wallet_address=solana_address)
-
     token_address = "FFqR2bk3ULB1WuYECRbooxPpbYvvZBp3z9Uc94Pqpump"
-    metadata = get_token_metadata(token_address=token_address)
-    print(metadata)
+    token_address = "7AeGaYhyhvDRdPkH7Wg7vup8D1SjNRZc1fXLZNcYpump"
 
-    
+    # metadata = get_token_metadata(token_address=token_address)
+    # print(metadata)
+
     account = "DnJaA2C7Ak93HGvACoCQ9ULacYuq7BuiYMWtWePekzJH"
     account = None
     token_accounts = await count_associated_token_accounts(wallet_pubkey=Pubkey.from_string(solana_address))
     print("Accounts: {}".format(token_accounts))
+    time.sleep(2)
     token_accounts_data = await detect_dust_token_accounts(
         wallet_pubkey=Pubkey.from_string(solana_address),
         token_mint_addres=account
