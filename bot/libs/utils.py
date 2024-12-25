@@ -8,12 +8,23 @@ import time
 
 from datetime import datetime
 from enum import Enum
+
 from solana.rpc.api import Client
 from solana.rpc.async_api import AsyncClient
-from solana.rpc.types import TokenAccountOpts
+from solana.rpc.types import TxOpts
+from solana.rpc.commitment import Confirmed
+
 from solders.message import Message, MessageV0
 from solders.pubkey import Pubkey
-from solders.rpc.responses import GetTokenAccountsByOwnerResp
+from solders.keypair import Keypair
+from solders.compute_budget import set_compute_unit_price
+from solders.transaction import Transaction
+
+from spl.token.instructions import (
+    burn_checked,
+    get_associated_token_address,
+    BurnCheckedParams,
+)
 
 from bot.config import appconfig
 
@@ -208,6 +219,7 @@ async def detect_dust_token_accounts(
     min_token_value = 1
     account_samples = 5
     working_balance = 0
+    # Refactor this: remove this line of code and test as client is not being used
     async with AsyncClient(appconfig.RPC_URL_HELIUS) as client:
         try:
             # TODO: implement token's black list (like USDC, etc)
@@ -527,6 +539,123 @@ def get_token_metadata(token_address: str)->dict:
     return metadata
 
 
+async def burn_associated_token_account(
+    token: Pubkey,
+    keypair: Keypair,
+    token_authority: Pubkey,
+    decimals: int = 0,
+    amount: float = None
+) -> str:
+    """
+    Burs all tokens from the associated token account
+    :param token[Pubkey]: associated token account
+    :param keypair[Keypair]: signer and account owner
+    :param token_authority[Pubkey]: token authority
+    :param decimals: [int] The number of decimals for the token.
+    :param amount[float] = None. Burn the exact amount 
+    :return: [str] transaction signature.
+    """
+    txn = None
+    async with AsyncClient(appconfig.RPC_URL_HELIUS) as client:
+        try:
+            token_programm = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")  # SPL Token program ID
+            # Get associated token account
+            associated_token_account = get_associated_token_address(
+                owner=keypair.pubkey(),
+                mint=token
+            )
+
+            # Check if the associated token account exists
+            response = await client.get_account_info(associated_token_account)
+            account_info = response.value
+            if not account_info:
+                print("Associated token account {} does not exist.".format(
+                    associated_token_account
+                ))
+                return txn
+
+            data = account_info.data
+            if len(data) != 165:
+                print("burn_associated_token_account-> Error: Invalid data length for SPL associated account {} for token {}".format(
+                    str(associated_token_account),
+                    str(token)
+                ))
+            (
+                mint,
+                owner,
+                amount_lamports,
+                delegate_option,
+                delegate,
+                state,
+                is_native_option,
+                is_native,
+                delegated_amount,
+                close_authority_option,
+                close_authority
+            ) = struct.unpack("<32s32sQ4s32sB4sQ8s4s32s",data)
+            lamports = amount_lamports
+            owner = owner
+            # Convert amount to integer based on token decimals
+            if amount is None:
+                amount = lamports 
+            else:
+                amount = int(amount * (10 ** decimals))
+
+            # Construct the burn instruction
+            params = BurnCheckedParams(
+                program_id=token_programm,
+                mint=token,
+                account=associated_token_account,
+                owner=keypair.pubkey(),
+                amount=amount,
+                decimals=decimals,
+                signers=[keypair.pubkey()]
+            )
+            burn_ix = burn_checked(params=params)
+
+            # Create and sign transaction
+            blockhash = await client.get_latest_blockhash()
+            recent_blockhash = blockhash.value.blockhash
+    
+            msg = Message(
+                instructions=[set_compute_unit_price(1_000), burn_ix],
+                payer=keypair.pubkey()
+            )
+            tx_signature = await client.send_transaction(
+                    txn=Transaction([keypair], msg, recent_blockhash),
+                    opts=TxOpts(preflight_commitment=Confirmed),
+                )
+            current_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
+            print("Trade->{} Transaction: https://solscan.io/tx/{} at {}".format(
+                "Burn",
+                tx_signature.value,
+                current_time
+            ))
+            await client.confirm_transaction(tx_signature.value, commitment="confirmed")
+            print("Transaction confirmed")
+
+            # SECOND WAY: POSTING TRANSACTION 
+            # config = RpcSendTransactionConfig(
+            #     preflight_commitment=CommitmentLevel.Confirmed
+            # )
+            # tx = SendLegacyTransaction(tx=Transaction([keypair], msg, recent_blockhash),config=config)
+            # response = requests.post(
+            #         url=appconfig.RPC_URL_HELIUS,
+            #         headers={"Content-Type": "application/json"},
+            #         data=tx.to_json()
+            #     )
+            # txSignature = response.json()['result']
+            # current_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
+            # print("Trade->{} Transaction: https://solscan.io/tx/{} at {}".format(
+            #     "Burn",
+            #     txSignature,
+            #     current_time
+            # ))
+
+        except Exception as e:
+            print("burn_associated_token_account Error: {}".format(e))
+
+    return txn
 
 async def test():
     solana_address = "4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb"
@@ -536,6 +665,13 @@ async def test():
 
     # metadata = get_token_metadata(token_address=token_address)
     # print(metadata)
+    txn = await burn_associated_token_account(
+        token=Pubkey.from_string("DCmtjvp36JDAmsURBRY4jz5A8PoEXsxaFEAgu7CBpump"),
+        keypair=Keypair.from_base58_string(appconfig.PRIVKEY),
+        token_authority=Pubkey.from_string("TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM"),
+        decimals=6,
+        amount=0.02
+    )
 
     account = "DnJaA2C7Ak93HGvACoCQ9ULacYuq7BuiYMWtWePekzJH"
     account = None
@@ -553,5 +689,5 @@ async def test():
         sum(account["sol_balance"] for account in token_accounts_data if account["is_dust"])
     ))
 
-import asyncio
-asyncio.run(test())
+#import asyncio
+#asyncio.run(test())
