@@ -652,6 +652,111 @@ async def burn_associated_token_account(
 
     return txn
 
+
+from solders.pubkey import Pubkey
+from spl.token.instructions import close_account, CloseAccountParams
+async def burn_and_close_associated_token_account(
+    associated_token_account: Pubkey,
+    token_mint: Pubkey,
+    decimals: int,
+    keypair: Keypair
+) -> str:
+    """
+    Burs all tokens from the associated token account
+    :param associated_token_account[Pubkey]: associated token account
+    :param token_mint[Pubkey]: tokens to get burned
+    :param keypair[Keypair]: signer and account owner
+    :param decimals[int]: The token's decimals (default 9 for SOL).
+    :return: [str] transaction signature.
+    """
+    txn_signature = None
+    async with AsyncClient(appconfig.RPC_URL_HELIUS) as client:
+        try:
+            response = await client.get_account_info(associated_token_account)
+            account_info = response.value
+            if not account_info:
+                print("Associated token account {} does not exist.".format(
+                    associated_token_account
+                ))
+                return txn_signature
+            
+            # Derive the associated token account address
+            TOKEN_PROGRAM_ID = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+
+            # BURN
+            data = account_info.data
+            if len(data) != 165:
+                print("burn_associated_token_account-> Error: Invalid data length for SPL associated account {} for token {}".format(
+                    str(associated_token_account),
+                    str(token_mint)
+                ))
+            (
+                mint,
+                owner,
+                amount_lamports,
+                delegate_option,
+                delegate,
+                state,
+                is_native_option,
+                is_native,
+                delegated_amount,
+                close_authority_option,
+                close_authority
+            ) = struct.unpack("<32s32sQ4s32sB4sQ8s4s32s",data)
+            lamports = amount_lamports
+            owner = owner
+            amount = lamports 
+
+            # Construct the burn instruction
+            params = BurnCheckedParams(
+                program_id=TOKEN_PROGRAM_ID,
+                mint=token_mint,
+                account=associated_token_account,
+                owner=keypair.pubkey(),
+                amount=amount,
+                decimals=decimals,
+                signers=[keypair.pubkey()]
+            )
+            burn_ix = burn_checked(params=params)
+
+            # CLOSE
+            # Create the close account instruction
+            close_ix = close_account(
+                CloseAccountParams(
+                    program_id=TOKEN_PROGRAM_ID,
+                    account=associated_token_account,
+                    dest=keypair.pubkey(),
+                    owner=keypair.pubkey()
+                )
+            )
+
+            blockhash = await client.get_latest_blockhash()
+            recent_blockhash = blockhash.value.blockhash
+            tx = Transaction.new_signed_with_payer(
+                instructions=[set_compute_unit_price(1_000), burn_ix, close_ix],
+                payer=keypair.pubkey(),
+                signing_keypairs=[keypair],
+                recent_blockhash=recent_blockhash
+            )
+            tx_signature = await client.send_transaction(
+                txn=tx,
+                opts=TxOpts(preflight_commitment=Confirmed),
+            )
+
+            current_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
+            print("Trade->{} Transaction: https://solscan.io/tx/{} at {}".format(
+                "Transfer",
+                tx_signature.value,
+                current_time
+            ))
+            await client.confirm_transaction(tx_signature.value, commitment="confirmed")
+            print("Transaction confirmed")
+
+        except Exception as e:
+            print("transfer_solanas Error: {}".format(e))
+
+    return txn_signature
+
 async def test():
     solana_address = "4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb"
     #solana_address = "onK5ruraCpbvjzWjqvJ3uBXgXapNX6ddB799qsNipeR"
@@ -660,13 +765,24 @@ async def test():
 
     # metadata = get_token_metadata(token_address=token_address)
     # print(metadata)
-    txn = await burn_associated_token_account(
-        token=Pubkey.from_string("DCmtjvp36JDAmsURBRY4jz5A8PoEXsxaFEAgu7CBpump"),
+    # txn = await burn_associated_token_account(
+    #     token=Pubkey.from_string("DCmtjvp36JDAmsURBRY4jz5A8PoEXsxaFEAgu7CBpump"),
+    #     keypair=Keypair.from_base58_string(appconfig.PRIVKEY),
+    #     token_authority=Pubkey.from_string("TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM"),
+    #     decimals=6,
+    #     amount=None
+    # )
+
+    associated_token_account = "D4fHjGpq7yzVm7RSGVkfkMGfixR8HTErJgLbD3GV5k6J"
+    token_address = "ErNXfdqTCXBE3H4MAHqULWdZsTbnrjsHcoCGPnkmpump"
+    txn = await burn_and_close_associated_token_account(
+        associated_token_account=Pubkey.from_string(associated_token_account),
+        token_mint=Pubkey.from_string(token_address),
         keypair=Keypair.from_base58_string(appconfig.PRIVKEY),
-        token_authority=Pubkey.from_string("TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM"),
-        decimals=6,
-        amount=0.02
+        decimals=6  
     )
+
+    
 
     account = "DnJaA2C7Ak93HGvACoCQ9ULacYuq7BuiYMWtWePekzJH"
     account = None

@@ -1,0 +1,71 @@
+JSON.SET "token:4YFNRqzX1oNnXQZifn5p6Kj2T8ZztjXSjfhcF9Xapump" $ '{"amount":0.004,"is_traded":false,"timestamp":1690228321, "trader": "sniper", "name": "CELEBRINBORG", "symbol": "CBB", "track_traders": ["trader1", "trader2"]}'
+
+json.set "token:U3BHBrAf7pZoQLbbFgp9qx7JcJin8ovT7EBqeeapump" $ '{"amount":1.0,"is_checked":true,"is_traded":true,"is_closed":true,"timestamp":1733065571.934685,"trader":"sniper","signature":"o1bjZbyJ9SpTfaWvwecgCGGG2f5dTxDRQ4vdSi8dN3di3gX3w5CRqCHNs1ETLArMFt3azZ3Fk4qWbQPv2aT38pW","mint":"U3BHBrAf7pZoQLbbFgp9qx7JcJin8ovT7EBqeeapump","traderPublicKey":"5oLwPx3p8j8AK3P6fxdD23CRA7i3iUmCVwBi4wpsWLMP","txType":"create","initialBuy":67062499.999999,"bondingCurveKey":"5rv2wnm2H5MsYrgHauSfYRirQEGSkpPe7vfNkoqNB4WY","vTokensInBondingCurve":1005937500.000001,"vSolInBondingCurve":31.999999999999968,"marketCapSol":31.811121466293816,"name":"Tung Distilled AI","symbol":"Tung","uri":"https://ipfs.io/ipfs/QmXNFxxQPagxTvMdjJCtah9u6abwfdt77PtjS8sgWcYbGG"}'
+
+
+json.set "token:5SzQBTqXTbFYmPaamAKj5ajbzJk9ANNqJf2gaVZ1pump" $ '{"amount":1.0,"is_checked":true,"is_traded":true,"is_closed":true,"timestamp":1733065571.934685,"trader":"sniper","signature":"o1bjZbyJ9SpTfaWvwecgCGGG2f5dTxDRQ4vdSi8dN3di3gX3w5CRqCHNs1ETLArMFt3azZ3Fk4qWbQPv2aT38pW","mint":"U3BHBrAf7pZoQLbbFgp9qx7JcJin8ovT7EBqeeapump","traderPublicKey":"5oLwPx3p8j8AK3P6fxdD23CRA7i3iUmCVwBi4wpsWLMP","txType":"create","initialBuy":67062499.999999,"bondingCurveKey":"5rv2wnm2H5MsYrgHauSfYRirQEGSkpPe7vfNkoqNB4WY","vTokensInBondingCurve":1005937500.000001,"vSolInBondingCurve":31.999999999999968,"marketCapSol":31.811121466293816,"name":"Tung Distilled AI","symbol":"Tung","uri":"https://ipfs.io/ipfs/QmXNFxxQPagxTvMdjJCtah9u6abwfdt77PtjS8sgWcYbGG"}'
+
+
+# TODO
+√ Step1: return this
+  - total associated token accounts
+  - total burnable accounts
+  - amount in solanas (aproximation)
+  - amount in usd
+
+  Notes:
+    - Ver el request directo de get token account by owner 
+  y así tengo los decimales de una
+    - Obtener el valors del token y multiplicarlo por los tokens
+ para decidir si el token es quemable o no
+
+√ Step2: return a list of associated token accounts with:
+  - Token description
+  - Name
+  - Symbol
+  - uri
+  - cdn_uri
+  - mime
+  - authority
+  - tokens
+  - price per token
+  - account balance in sol
+  - account balance in usd
+
+√ Step 3: Burn token for a particular account
+
+√ Step 5: close account
+
+- Step 6: get close account info and validate that it's deleted.
+
+
+
+
+
+
+
+
+- BUG: when a timeout occurs during subscription, the next step is
+       BUY and should be unsubscribe to token.
+
+- BUG: When token is too old, It should  hear again from redisdb
+       Now is continuing the steps.
+
+
+
+- Fees service:
+  - Create a service that will subscribe to
+  sniper pubkey and get any changes in its state
+  and log it in redis.
+    - Create a new index for this
+
+- Scanner: 
+  * will delete all tokens -> is_checked == False
+  -> Work with black list and discard any token made by blacked developers
+
+- Docker: run automatically
+- Bash: apply command arguments to choose
+  how to run the celebrimborg: Sniper, messaging
+  - Send messsages when things goes wrong
+
+- Replace prints with Logging with timestamp
