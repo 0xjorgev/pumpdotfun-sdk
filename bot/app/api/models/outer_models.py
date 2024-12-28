@@ -24,10 +24,10 @@ class CountAssociatedTokenAccounts(BaseModel):
     accounts_for_manual_review: int = Field(
         0, description='Number of accounts requiring manual review.'
     )
-    rent_balance: int = Field(
+    rent_balance: float = Field(
         0, description='Total rent balance for the accounts.'
     )
-    rent_balance_usd:  int = Field(
+    rent_balance_usd:  float = Field(
         0, description='Total rent balance converted to USD.'
     )
 

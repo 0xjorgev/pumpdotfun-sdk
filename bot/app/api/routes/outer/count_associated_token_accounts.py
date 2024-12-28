@@ -2,7 +2,8 @@ from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import ValidationError, Field, constr
 
 from api.models.outer_models import AccountAddressType, CountAssociatedTokenAccounts
-
+from api.libs.utils import count_associated_token_accounts
+from solders.pubkey import Pubkey
 # Create a router for the associated_token_accounts routes
 router = APIRouter()
 
@@ -17,21 +18,23 @@ def validate_account_address(account_address: AccountAddressType) -> str:
     summary="Get account statistics for a Solana associated token account",
     description="Retrieve statistics for a given Solana associated token account address."
 )
-async def count_associated_token_accounts(
+async def associated_token_accounts_count(
     account_address: str = Depends(validate_account_address)
 ):
     # Mock logic for checking account existence (replace with actual logic)
-    if account_address != "4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb":
-        raise HTTPException(
-            status_code=404,
-            detail="Account not found."
-        )
+    # if account_address != "4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb":
+    #     raise HTTPException(
+    #         status_code=404,
+    #         detail="Account not found."
+    #     )
+    wallet_pubkey = Pubkey.from_string(account_address)
+    data = await count_associated_token_accounts(wallet_pubkey=wallet_pubkey)
     response = CountAssociatedTokenAccounts(
-        total_accounts=1,
-        burnable_accounts=1,
-        accounts_for_manual_review=0,
-        rent_balance=1.0,
-        rent_balance_usd=225.0
+        total_accounts=data["total_accounts"],
+        burnable_accounts=data["burnable_accounts"],
+        accounts_for_manual_review=data["accounts_for_manual_review"],
+        rent_balance=data["rent_balance"],
+        rent_balance_usd=data["rent_balance_usd"]
     )
     return response
 

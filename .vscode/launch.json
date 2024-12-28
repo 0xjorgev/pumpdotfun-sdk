@@ -64,7 +64,23 @@
             "ENVIRONMENT": "DUMMY"
         },
         "justMyCode": false
-    }
+    },
+    {
+        "name": "Debug FastAPI with Uvicorn",
+        "type": "python",
+        "request": "launch",
+        "module": "uvicorn",
+        "args": [
+          "main:app",
+          "--port",
+          "5001",
+          "--reload"
+        ],
+        "jinja": true,
+        "env": {
+          "PYTHONPATH": "${workspaceFolder}/bot/app"
+        }
+      }
 ]
 }
   
