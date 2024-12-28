@@ -243,7 +243,6 @@ async def count_associated_token_accounts(
 
 async def detect_dust_token_accounts(
     wallet_pubkey: Pubkey,
-    token_mint_address: str = None,
     do_balance_aproximation: bool = True
 ) -> list[dict]:
     """
@@ -345,7 +344,7 @@ async def detect_dust_token_accounts(
             return account_output
 
         except Exception as e:
-            print(f"Error fetching token '{token_mint_address}' balance: {e}")
+            print(f"Error fetching associated token accounts for account '{str(wallet_pubkey)}' balance: {e}")
             return account_output
 
 async def burn_and_close_associated_token_account(
