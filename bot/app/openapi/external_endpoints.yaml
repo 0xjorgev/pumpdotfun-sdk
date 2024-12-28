@@ -1,0 +1,204 @@
+openapi: 3.0.3
+info:
+  title: Solana API
+  description: API for interacting with Solana-related functionalities.
+  version: 1.0.0
+servers:
+  - url: http://127.0.0.1:8000
+paths:
+  /associated_token_accounts/count:
+    get:
+      summary: Get all associated token account for a fiven Solana account
+      parameters:
+        - name: wallet_pubkey
+          in: query
+          required: true
+          description: The Solana associated token account address.
+          schema:
+            type: string
+            pattern: ^[1-9A-HJ-NP-Za-km-z]{44}$
+            description: >
+              Must be a valid Solana address format with 44 characters, 
+              excluding the letters `l`, `I`, and `O` to avoid ambiguity.
+      responses:
+        '200':
+          description: Account statistics for the given address.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CountAssociatedTokenAccounts'
+              example:
+                total_accounts: 44
+                burnable_accounts: 43
+                accounts_for_manual_review: 0
+                rent_balance: 0.08972832
+                rent_balance_usd: 16.3628564352
+        '404':
+          description: Account not found.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: "Account not found."
+  
+  /associated_token_accounts:
+    get:
+      summary: Retrieve associated token accounts
+      parameters:
+        - name: wallet_pubkey
+          in: query
+          required: true
+          description: The wallet public key (Solana format).
+          schema:
+            type: string
+            pattern: ^[1-9A-HJ-NP-Za-km-z]{44}$
+            description: >
+              Must be a valid Solana public key format with 44 characters, 
+              excluding the letters `l`, `I`, and `O` to avoid ambiguity.
+        - name: token_mint_address
+          in: query
+          required: true
+          description: The token mint address (Solana format).
+          schema:
+            type: string
+            pattern: ^[1-9A-HJ-NP-Za-km-z]{44}$
+            description: >
+              Must be a valid Solana address format with 44 characters, 
+              excluding the letters `l`, `I`, and `O` to avoid ambiguity.
+      responses:
+        '200':
+          description: List of associated token accounts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssociatedTokenAccounts'
+              example:
+                - token_mint: "DCmtjvp36JDAmsURBRY4jz5A8PoEXsxaFEAgu7CBpump"
+                  associated_token_account: "7dLn2WU6vX6Yk1BeMoAAumx7grc79TdcUgrpqvA9CvFi"
+                  owner: "5154KiZXfvicBnbETPruMrvEabpUWF7KxTpTPmCH6ncn"
+                  token_amount: 0.457711
+                  token_price: 0
+                  token_value: 0.0
+                  decimals: 6
+                  sol_balance: 0.00203928
+                  sol_balance_usd: 0.39113390400000003
+                  is_dust: true
+                  uri: "https://ipfs.io/ipfs/QmVDb2EBo7HtcsNn9AYprcBGvvS4eLF4JiU7g8sWURPaaY"
+                  cdn_uri: "https://cdn.helius-rpc.com/cdn-cgi/image//https://ipfs.io/ipfs/QmVDb2EBo7HtcsNn9AYprcBGvvS4eLF4JiU7g8sWURPaaY"
+                  mime: "image/png"
+                  description: >-
+                    "Nail it! (NILT)" is a vibrant and community-driven meme
+                    token inspired by the iconic nail as a symbol of precision
+                    and determination. With its fun and engaging theme, the
+                    token aims to bring joy to crypto enthusiasts while offering
+                    unique opportunities for community engagement and creative
+                    use cases. Join the "Nail it!" movement and hammer down on
+                    your goals!
+                  name: "Nail it!"
+                  symbol: "NILT"
+                  authority: "TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM"
+                  supply: 999999999694079
+                  token_program: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+                  insufficient_data: true
+  
+components:
+  schemas:
+    CountAssociatedTokenAccounts:
+      type: object
+      properties:
+        total_accounts:
+          type: integer
+          description: Total number of associated accounts.
+        burnable_accounts:
+          type: integer
+          description: Number of accounts eligible for burn.
+        accounts_for_manual_review:
+          type: integer
+          description: Number of accounts requiring manual review.
+        rent_balance:
+          type: number
+          format: float
+          description: Total rent balance for the accounts.
+        rent_balance_usd:
+          type: number
+          format: float
+          description: Total rent balance converted to USD.
+    
+    AssociatedTokenAccount:
+      type: object
+      properties:
+        token_mint:
+          type: string
+          description: The mint address of the token.
+        associated_token_account:
+          type: string
+          description: The associated token account address.
+        owner:
+          type: string
+          description: The owner of the associated token account.
+        token_amount:
+          type: number
+          format: float
+          description: The amount of tokens held.
+        token_price:
+          type: number
+          format: float
+          description: The price of the token.
+        token_value:
+          type: number
+          format: float
+          description: The total value of the tokens held.
+        decimals:
+          type: integer
+          description: The number of decimals for the token.
+        sol_balance:
+          type: number
+          format: float
+          description: The balance of SOL in the associated account.
+        sol_balance_usd:
+          type: number
+          format: float
+          description: The balance of SOL converted to USD.
+        is_dust:
+          type: boolean
+          description: Whether the token is considered "dust."
+        uri:
+          type: string
+          format: uri
+          description: URI pointing to the token's metadata.
+        cdn_uri:
+          type: string
+          format: uri
+          description: CDN URI pointing to cached metadata.
+        mime:
+          type: string
+          description: The MIME type of the token's metadata file.
+        description:
+          type: string
+          description: A description of the token.
+        name:
+          type: string
+          description: The name of the token.
+        symbol:
+          type: string
+          description: The symbol of the token.
+        authority:
+          type: string
+          description: The token authority address.
+        supply:
+          type: integer
+          description: The total supply of the token.
+        token_program:
+          type: string
+          description: The Solana token program ID.
+        insufficient_data:
+          type: boolean
+          description: Whether there is insufficient data for this token.
+
+    AssociatedTokenAccounts:
+      type: array
+      items:
+        $ref: '#/components/schemas/AssociatedTokenAccount'

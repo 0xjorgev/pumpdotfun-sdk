@@ -429,7 +429,7 @@ async def count_associated_token_accounts(
 
 async def detect_dust_token_accounts(
     wallet_pubkey: Pubkey,
-    token_mint_addres: str = None,
+    token_mint_address: str = None,
     do_balance_aproximation: bool = True
 ) -> list[dict]:
     """
@@ -531,7 +531,7 @@ async def detect_dust_token_accounts(
             return account_output
 
         except Exception as e:
-            print(f"Error fetching token '{token_mint_addres}' balance: {e}")
+            print(f"Error fetching token '{token_mint_address}' balance: {e}")
             return account_output
 
 async def burn_associated_token_account(
@@ -782,8 +782,6 @@ async def test():
         decimals=6  
     )
 
-    
-
     account = "DnJaA2C7Ak93HGvACoCQ9ULacYuq7BuiYMWtWePekzJH"
     account = None
     token_accounts = await count_associated_token_accounts(wallet_pubkey=Pubkey.from_string(solana_address))
@@ -791,7 +789,7 @@ async def test():
     time.sleep(2)
     token_accounts_data = await detect_dust_token_accounts(
         wallet_pubkey=Pubkey.from_string(solana_address),
-        token_mint_addres=account
+        token_mint_address=account
     )
     print("USD being held: {}".format(
         sum(account["sol_balance_usd"] for account in token_accounts_data if account["is_dust"])
