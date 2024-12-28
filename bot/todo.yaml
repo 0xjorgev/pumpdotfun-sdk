@@ -7,37 +7,8 @@ json.set "token:5SzQBTqXTbFYmPaamAKj5ajbzJk9ANNqJf2gaVZ1pump" $ '{"amount":1.0,"
 
 
 # TODO
-√ Step1: return this
-  - total associated token accounts
-  - total burnable accounts
-  - amount in solanas (aproximation)
-  - amount in usd
-
-  Notes:
-    - Ver el request directo de get token account by owner 
-  y así tengo los decimales de una
-    - Obtener el valors del token y multiplicarlo por los tokens
- para decidir si el token es quemable o no
-
-√ Step2: return a list of associated token accounts with:
-  - Token description
-  - Name
-  - Symbol
-  - uri
-  - cdn_uri
-  - mime
-  - authority
-  - tokens
-  - price per token
-  - account balance in sol
-  - account balance in usd
-
-√ Step 3: Burn token for a particular account
-
-√ Step 5: close account
-
-- Step 6: get close account info and validate that it's deleted.
-
+- Create API schema and generate pydantic models for
+  - get 
 
 
 

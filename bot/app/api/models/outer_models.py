@@ -1,0 +1,87 @@
+from __future__ import annotations
+from typing import Annotated, List, Optional
+from pydantic import AnyUrl, BaseModel, Field, RootModel, constr
+
+
+AccountAddressType = Annotated[
+    str,
+    Field(
+        pattern=r"^[1-9A-HJ-NP-Za-km-z]{44}$",
+        description=(
+            "The Solana associated token account address. Must be a valid address with 44 characters, "
+            "excluding the letters `l`, `I`, and `O` to avoid ambiguity."
+        )
+    )
+]
+
+class CountAssociatedTokenAccounts(BaseModel):
+    total_accounts: int = Field(
+        0, description='Total number of associated accounts.'
+    )
+    burnable_accounts: int = Field(
+        0, description='Number of accounts eligible for burn.'
+    )
+    accounts_for_manual_review: int = Field(
+        0, description='Number of accounts requiring manual review.'
+    )
+    rent_balance: int = Field(
+        0, description='Total rent balance for the accounts.'
+    )
+    rent_balance_usd:  int = Field(
+        0, description='Total rent balance converted to USD.'
+    )
+
+
+class AssociatedTokenAccount(BaseModel):
+    token_mint: Optional[str] = Field(
+        None, description='The mint address of the token.'
+    )
+    associated_token_account: Optional[str] = Field(
+        None, description='The associated token account address.'
+    )
+    owner: Optional[str] = Field(
+        None, description='The owner of the associated token account.'
+    )
+    token_amount: Optional[float] = Field(
+        None, description='The amount of tokens held.'
+    )
+    token_price: Optional[float] = Field(None, description='The price of the token.')
+    token_value: Optional[float] = Field(
+        None, description='The total value of the tokens held.'
+    )
+    decimals: Optional[int] = Field(
+        None, description='The number of decimals for the token.'
+    )
+    sol_balance: Optional[float] = Field(
+        None, description='The balance of SOL in the associated account.'
+    )
+    sol_balance_usd: Optional[float] = Field(
+        None, description='The balance of SOL converted to USD.'
+    )
+    is_dust: Optional[bool] = Field(
+        None, description='Whether the token is considered "dust."'
+    )
+    uri: Optional[AnyUrl] = Field(
+        None, description="URI pointing to the token's metadata."
+    )
+    cdn_uri: Optional[AnyUrl] = Field(
+        None, description='CDN URI pointing to cached metadata.'
+    )
+    mime: Optional[str] = Field(
+        None, description="The MIME type of the token's metadata file."
+    )
+    description: Optional[str] = Field(None, description='A description of the token.')
+    name: Optional[str] = Field(None, description='The name of the token.')
+    symbol: Optional[str] = Field(None, description='The symbol of the token.')
+    authority: Optional[str] = Field(None, description='The token authority address.')
+    supply: Optional[int] = Field(None, description='The total supply of the token.')
+    token_program: Optional[str] = Field(
+        None, description='The Solana token program ID.'
+    )
+    insufficient_data: Optional[bool] = Field(
+        None, description='Whether there is insufficient data for this token.'
+    )
+
+
+class AssociatedTokenAccounts(RootModel[List[AssociatedTokenAccount]]):
+    pass
