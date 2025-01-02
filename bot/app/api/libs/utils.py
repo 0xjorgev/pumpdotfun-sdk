@@ -395,9 +395,8 @@ async def burn_and_close_associated_token_account(
                 close_authority_option,
                 close_authority
             ) = struct.unpack("<32s32sQ4s32sB4sQ8s4s32s",data)
-            lamports = amount_lamports
             owner = owner
-            amount = lamports 
+            amount = amount_lamports 
 
             # Construct the burn instruction
             params = BurnCheckedParams(
