@@ -757,7 +757,41 @@ async def burn_and_close_associated_token_account(
 
     return txn_signature
 
+
+def generate_vanity_wallet(prefix: str) -> Keypair:
+    counter = 0
+    start_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
+    print("starting generate_vanity_wallet at {}".format(start_time))
+    while True:
+        counter += 1
+        # Generate a new keypair
+        keypair = Keypair()
+        public_key = str(keypair.pubkey())
+        
+        # Check if the public key starts with the desired prefix
+        if public_key.lower().startswith(prefix.lower()):
+            stop_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
+            print("Pubkey: {}".format(public_key))
+            pk = base58.b58encode(bytes(keypair)).decode()
+            print("PK: {}".format(pk))
+            print("finishing generate_vanity_wallet at {} after {} iterations".format(
+                    stop_time,
+                    counter
+                )
+            )
+            return keypair
+    
+
 async def test():
+    prefix = "Ghost"
+
+    # Generate the vanity wallet
+    print(f"Generating wallet with prefix '{prefix}'...")
+    keypair = generate_vanity_wallet(prefix)
+
+    if keypair:
+        return
+
     solana_address = "4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb"
     #solana_address = "onK5ruraCpbvjzWjqvJ3uBXgXapNX6ddB799qsNipeR"
     token_address = "FFqR2bk3ULB1WuYECRbooxPpbYvvZBp3z9Uc94Pqpump"
