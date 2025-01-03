@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Annotated, List, Optional
-from pydantic import AnyUrl, BaseModel, Field, RootModel, constr
+from pydantic import AnyUrl, BaseModel, Field, model_validator, ValidationError
 
 
 AccountAddressType = Annotated[
@@ -83,5 +83,25 @@ class AssociatedTokenAccount(BaseModel):
     )
 
 
-class AssociatedTokenAccounts(RootModel[List[AssociatedTokenAccount]]):
-    pass
+class AssociatedTokenAccounts(BaseModel):
+    page: int = Field(
+        ..., gt=0, description='The current page being retrieved (must be greater or equal than 0).'
+    )
+    items: int = Field(
+        ..., gt=0, description='The number of items per page (must be greater or equal than 0).'
+    )
+    total_items: int = Field(
+        ..., gt=-1, description='The total number of retrievable items (must be non-negative).'
+    )
+    accounts: List[AssociatedTokenAccount] = Field(
+        description="The list of associated token accounts.",
+        default=[]
+    )
+
+    # @model_validator(mode="before")
+    # def validate_pagination(cls, values):
+    #     page = values.get("page")
+    #     items = values.get("items")
+    #     if page <= 0 or items <= 0:
+    #         raise ValidationError("Both 'page' and 'items' must be greater than 0.")
+    #     return values

@@ -1,3 +1,4 @@
+import math
 import random
 import requests
 import struct
@@ -243,8 +244,10 @@ async def count_associated_token_accounts(
 
 async def detect_dust_token_accounts(
     wallet_pubkey: Pubkey,
-    do_balance_aproximation: bool = True
-) -> list[dict]:
+    do_balance_aproximation: bool = True,
+    page: int = appconfig.DEFAULT_PAGE,
+    items_per_page: int = appconfig.DEFAULT_ITEMS_PER_PAGE
+) -> tuple[list[dict], int, int]:
     """
     Fetches the balance of a specific token in a given Solana wallet.
 
@@ -257,6 +260,7 @@ async def detect_dust_token_accounts(
     # Refactor this: remove this line of code and test as client is not being used
     async with AsyncClient(appconfig.RPC_URL_HELIUS) as client:
         try:
+            total_items = 0
             # TODO: implement token's black list (like USDC, etc)
             token_blacklist = []
             original_accounts = await get_token_accounts_by_owner(wallet_address=str(wallet_pubkey))
@@ -266,12 +270,12 @@ async def detect_dust_token_accounts(
             ]
 
             if not accounts:
-                return []
+                return [], page, total_items
             
             # Fetch the current Solana price
             sol_price = get_solana_price()
             if sol_price == 0:
-                return []
+                return [], page, total_items
 
             if do_balance_aproximation:
                 account_sample_list = accounts
@@ -291,7 +295,26 @@ async def detect_dust_token_accounts(
 
             counter = 0
             account_output = []
-            for account in accounts:
+            # Sort ATAs by mint address (this will help with the pagination)
+            sorted_accounts = sorted(
+                accounts, 
+                key=lambda x: x["account"]["data"]["parsed"]["info"]["mint"]
+            )
+            
+            # Pagination
+            total_items = len(sorted_accounts)
+            # We can't expect to have more items in a page than what we have. Ex: can't have 50 page items on 10 items in total
+            total_pages = math.ceil(total_items / items_per_page) if items_per_page < total_items else total_items
+            # can't work with pages greater than the total pages we're dealing with
+            page = total_pages if page > total_pages else page
+
+            start_index = (page - 1) * items_per_page
+            end_index = start_index + items_per_page if start_index + items_per_page < total_items else total_items
+
+            # Paginate the list
+            sorted_accounts = sorted_accounts[start_index:end_index]
+
+            for account in sorted_accounts:
                 counter +=1
 
                 mint = account["account"]["data"]["parsed"]["info"]["mint"]
@@ -341,11 +364,11 @@ async def detect_dust_token_accounts(
                     }
                 )
 
-            return account_output
+            return account_output, page, total_items
 
         except Exception as e:
             print(f"Error fetching associated token accounts for account '{str(wallet_pubkey)}' balance: {e}")
-            return account_output
+            return account_output, page, total_items
 
 async def burn_and_close_associated_token_account(
     associated_token_account: Pubkey,
@@ -447,3 +470,4 @@ async def burn_and_close_associated_token_account(
             print("transfer_solanas Error: {}".format(e))
 
     return txn_signature
+

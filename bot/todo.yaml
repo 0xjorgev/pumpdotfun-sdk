@@ -1,16 +1,32 @@
-JSON.SET "token:4YFNRqzX1oNnXQZifn5p6Kj2T8ZztjXSjfhcF9Xapump" $ '{"amount":0.004,"is_traded":false,"timestamp":1690228321, "trader": "sniper", "name": "CELEBRINBORG", "symbol": "CBB", "track_traders": ["trader1", "trader2"]}'
-
-json.set "token:U3BHBrAf7pZoQLbbFgp9qx7JcJin8ovT7EBqeeapump" $ '{"amount":1.0,"is_checked":true,"is_traded":true,"is_closed":true,"timestamp":1733065571.934685,"trader":"sniper","signature":"o1bjZbyJ9SpTfaWvwecgCGGG2f5dTxDRQ4vdSi8dN3di3gX3w5CRqCHNs1ETLArMFt3azZ3Fk4qWbQPv2aT38pW","mint":"U3BHBrAf7pZoQLbbFgp9qx7JcJin8ovT7EBqeeapump","traderPublicKey":"5oLwPx3p8j8AK3P6fxdD23CRA7i3iUmCVwBi4wpsWLMP","txType":"create","initialBuy":67062499.999999,"bondingCurveKey":"5rv2wnm2H5MsYrgHauSfYRirQEGSkpPe7vfNkoqNB4WY","vTokensInBondingCurve":1005937500.000001,"vSolInBondingCurve":31.999999999999968,"marketCapSol":31.811121466293816,"name":"Tung Distilled AI","symbol":"Tung","uri":"https://ipfs.io/ipfs/QmXNFxxQPagxTvMdjJCtah9u6abwfdt77PtjS8sgWcYbGG"}'
-
-
-json.set "token:5SzQBTqXTbFYmPaamAKj5ajbzJk9ANNqJf2gaVZ1pump" $ '{"amount":1.0,"is_checked":true,"is_traded":true,"is_closed":true,"timestamp":1733065571.934685,"trader":"sniper","signature":"o1bjZbyJ9SpTfaWvwecgCGGG2f5dTxDRQ4vdSi8dN3di3gX3w5CRqCHNs1ETLArMFt3azZ3Fk4qWbQPv2aT38pW","mint":"U3BHBrAf7pZoQLbbFgp9qx7JcJin8ovT7EBqeeapump","traderPublicKey":"5oLwPx3p8j8AK3P6fxdD23CRA7i3iUmCVwBi4wpsWLMP","txType":"create","initialBuy":67062499.999999,"bondingCurveKey":"5rv2wnm2H5MsYrgHauSfYRirQEGSkpPe7vfNkoqNB4WY","vTokensInBondingCurve":1005937500.000001,"vSolInBondingCurve":31.999999999999968,"marketCapSol":31.811121466293816,"name":"Tung Distilled AI","symbol":"Tung","uri":"https://ipfs.io/ipfs/QmXNFxxQPagxTvMdjJCtah9u6abwfdt77PtjS8sgWcYbGG"}'
-
-
 # TODO
-- Create API schema and generate pydantic models for
-  - get 
+- app 
+  - Pagination:
+    - Speed up: Add pagination to detect_dust_token_accounts function
 
+- EC2:
+  - Deploy app in
+    - Mini and check if it works
+    - Small and check if it works
+  - Have a permanent IP address
 
+- New endopints
+  - Post: get burn and close quote
+    - Create openAPI specs
+    - Create pydantic classes
+    - Create enpoint /associated_token_accounts/burn_and_close/get_quote
+      - Will call burn_and_close_associated_token_account without keypair
+      - WIll include 5% fees as a new instruction
+        - Check lookuptables
+      - Will return a Transaction.new_unsigned (create the Message) 
+        - encode in base58 and return
+
+  - Post: send transaction (hablar con Jorge primero)
+    - Create openAPI specs
+    - Create pydantic classes
+    - Create enpoint /associated_token_accounts/burn_and_close
+      - Will receive the signed transaction in base 58 and decode it
+      - Will send the transaction and return the signature.
+      - The front will take care of confirming the txn.
 
 
 
