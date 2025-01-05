@@ -35,4 +35,22 @@ docker pull 237733826785.dkr.ecr.eu-west-1.amazonaws.com/ghostfunds-ata-service:
 ## List images
 aws ecr list-images --repository-name ghostfunds-ata-service --region eu-west-1
 # Run the docker container
-docker run -d -p 443:8000 237733826785.dkr.ecr.eu-west-1.amazonaws.com/ghostfunds-ata-service:latest
+docker run --memory=512m --memory-swap=512m -d -p 443:8000 237733826785.dkr.ecr.eu-west-1.amazonaws.com/ghostfunds-ata-service:latest
+
+# Start Docker when EC2 instance starts
+## Create start-docker-container.sh and add the code 
+### - look into /spp/AWS/start-docker-container.sh
+### - Adjust if dockerimage id changes
+sudo vim /etc/init.d/start-docker-container.sh
+
+## Make executable script
+sudo chmod +x /etc/init.d/start-docker-container.sh
+## Add script to chkconfig
+sudo chkconfig --add start-docker-container.sh
+## Enable the script at startup
+sudo chkconfig start-docker-container.sh on
+## Test the script
+sudo service start-docker-container.sh start
+docker ps
+
+

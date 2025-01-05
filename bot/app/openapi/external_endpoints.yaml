@@ -93,7 +93,41 @@ paths:
                   supply: 999999999694079
                   token_program: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
                   insufficient_data: true
-  
+
+  /associated_token_accounts/burn_and_close/get_transaction:
+    post:
+      summary: Retrieve a transaction with both burn and close intructions for an associated token account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GetTransaction'
+            example:
+                quote: "VGhpcyBpcyBhIHNhbXBsZSBxdW90ZSBmb3IgYnVybiBhbmQgY2xvc2U="
+      responses:
+        '200':
+          description: Burn and close quote successfully retrieved.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  quote:
+                    type: string
+                    format: base64
+                    description: A base64-encoded string representing the quote.
+        '404':
+          description: Account not found.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: "Associated token Account not found or miss match."
+
 components:
   schemas:
     CountAssociatedTokenAccounts:
@@ -116,7 +150,12 @@ components:
           type: number
           format: float
           description: Total rent balance converted to USD.
-    
+
+    AssociatedTokenAccounts:
+      type: array
+      items:
+        $ref: '#/components/schemas/AssociatedTokenAccount'
+
     AssociatedTokenAccount:
       type: object
       properties:
@@ -188,7 +227,15 @@ components:
           type: boolean
           description: Whether there is insufficient data for this token.
 
-    AssociatedTokenAccounts:
-      type: array
-      items:
-        $ref: '#/components/schemas/AssociatedTokenAccount'
+    GetTransaction:
+      type: object
+      properties:
+        associated_token_account:
+          type: string
+          description: The associated token account address.
+        token_mint:
+          type: string
+          description: The mint address of the token.
+        decimals:
+          type: integer
+          description: The number of decimals for the token.

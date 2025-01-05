@@ -4,8 +4,8 @@
     - Speed up: Add pagination to detect_dust_token_accounts function
 
 - EC2:
-  - Deploy app in
-    - Mini and check if it works
+  √ Deploy app in
+    √√ Mini and check if it works
     - Small and check if it works
   - Have a permanent IP address
 
@@ -13,20 +13,20 @@
   - Post: get burn and close quote
     - Create openAPI specs
     - Create pydantic classes
-    - Create enpoint /associated_token_accounts/burn_and_close/get_quote
+    - Create enpoint /associated_token_accounts/burn_and_close/quote
       - Will call burn_and_close_associated_token_account without keypair
       - WIll include 5% fees as a new instruction
         - Check lookuptables
       - Will return a Transaction.new_unsigned (create the Message) 
         - encode in base58 and return
 
-  - Post: send transaction (hablar con Jorge primero)
-    - Create openAPI specs
-    - Create pydantic classes
-    - Create enpoint /associated_token_accounts/burn_and_close
-      - Will receive the signed transaction in base 58 and decode it
-      - Will send the transaction and return the signature.
-      - The front will take care of confirming the txn.
+  # - Post: send transaction (hablar con Jorge primero)
+  #   - Create openAPI specs
+  #   - Create pydantic classes
+  #   - Create enpoint /associated_token_accounts/burn_and_close
+  #     - Will receive the signed transaction in base 58 and decode it
+  #     - Will send the transaction and return the signature.
+  #     - The front will take care of confirming the txn.
 
 
 
