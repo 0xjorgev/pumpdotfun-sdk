@@ -226,7 +226,7 @@ components:
     GetTransaction:
       type: object
       properties:
-        associated_token_account:
+        owner:
           type: string
           description: The associated token account address.
           pattern: ^[1-9A-HJ-NP-Za-km-z]{44}$

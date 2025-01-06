@@ -106,17 +106,17 @@ class AssociatedTokenAccounts(BaseModel):
     #         raise ValidationError("Both 'page' and 'items' must be greater than 0.")
     #     return values
 class RequestTransaction(BaseModel):
-    associated_token_account: constr(pattern=r'^[1-9A-HJ-NP-Za-km-z]{44}$') = (
+    owner: constr(pattern=r'^[1-9A-HJ-NP-Za-km-z]{44}$') = (
         Field(
             ...,
-            description='The associated token account address.',
+            description='Owner account address.',
             example='7dLn2WU6vX6Yk1BeMoAAumx7grc79TdcUgrpqvA9CvFi',
         )
     )
-    token_mint: constr(pattern=r'^[1-9A-HJ-NP-Za-km-z]{44}$') = Field(
+    token_mint: constr(pattern=r'^[1-9A-HJ-NP-Za-km-z]{32,50}$') = Field(
         ...,
-        description='The mint address of the token.',
-        example='DCmtjvp36JDAmsURBRY4jz5A8PoEXsxaFEAgu7CBpump',
+        description='The mint address of the token. Supports standard Solana mint format and extended formats.',
+        example='bpMAcs5cEDu33kbCgTcBu7HtuZwsoNwsMH839jupump',
     )
     decimals: int = Field(
         ..., description='The number of decimals for the token.', example=6

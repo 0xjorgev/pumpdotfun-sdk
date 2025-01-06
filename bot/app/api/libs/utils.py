@@ -19,7 +19,9 @@ from spl.token.instructions import (
     burn_checked,
     BurnCheckedParams,
 )
+from spl.token.constants import ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID
 from api.config import appconfig
+from api.handlers.exceptions import EntityNotFoundException
 
 
 async def get_solana_balance(public_key: Pubkey) -> float:
@@ -81,7 +83,7 @@ async def get_token_accounts_by_owner(wallet_address=str)->dict:
             "params": [
                 wallet_address,
                 {
-                    "programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+                    "programId": TOKEN_PROGRAM_ID
                 },
                 {
                     "encoding": "jsonParsed"
@@ -393,10 +395,7 @@ async def burn_and_close_associated_token_account(
                 print("Associated token account {} does not exist.".format(
                     associated_token_account
                 ))
-                return txn_signature
-            
-            # Derive the associated token account address
-            TOKEN_PROGRAM_ID = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+                raise txn_signature
 
             # BURN
             data = account_info.data
@@ -423,7 +422,7 @@ async def burn_and_close_associated_token_account(
 
             # Construct the burn instruction
             params = BurnCheckedParams(
-                program_id=TOKEN_PROGRAM_ID,
+                program_id=Pubkey.from_string(TOKEN_PROGRAM_ID),
                 mint=token_mint,
                 account=associated_token_account,
                 owner=keypair.pubkey(),
@@ -470,4 +469,114 @@ async def burn_and_close_associated_token_account(
             print("transfer_solanas Error: {}".format(e))
 
     return txn_signature
+
+
+def get_associated_token_address(owner: Pubkey, mint: Pubkey) -> Pubkey:
+    """Derives the associated token address for the given wallet address and token mint.
+
+    Returns:
+        The public key of the derived associated token address.
+    """
+    key, _ = Pubkey.find_program_address(
+        seeds=[bytes(owner), bytes(TOKEN_PROGRAM_ID), bytes(mint)],
+        program_id=ASSOCIATED_TOKEN_PROGRAM_ID,
+    )
+    return key
+
+
+async def close_ata_transaction(
+    owner: Pubkey,
+    token_mint: Pubkey,
+    decimals: int,
+    encode_base64: bool = True
+) -> str:
+    """
+    Burs all tokens from the associated token account
+    :param associated_token_account[Pubkey]: associated token account
+    :param token_mint[Pubkey]: tokens to get burned
+    :param decimals[int]: The token's decimals (default 9 for SOL).
+    :return: [str] base64 transaction object by default.
+    """
+    txn = None
+    async with AsyncClient(appconfig.RPC_URL_HELIUS) as client:
+        try:
+            associated_token_account = get_associated_token_address(
+                owner=owner,
+                mint=token_mint
+            )
+            response = await client.get_account_info(associated_token_account)
+            account_info = response.value
+            if not account_info:
+                print("Associated token account {} does not exist.".format(
+                    associated_token_account
+                ))
+                raise EntityNotFoundException(
+                    detail="Associated token account {} nor found.".format(
+                        str(associated_token_account)
+                    )
+                )
+
+            # BURN
+            data = account_info.data
+            if len(data) != 165:
+                print("burn_associated_token_account-> Error: Invalid data length for SPL associated account {} for token {}".format(
+                    str(associated_token_account),
+                    str(token_mint)
+                ))
+            (
+                mint,
+                owner_data,
+                amount_lamports,
+                delegate_option,
+                delegate,
+                state,
+                is_native_option,
+                is_native,
+                delegated_amount,
+                close_authority_option,
+                close_authority
+            ) = struct.unpack("<32s32sQ4s32sB4sQ8s4s32s",data)
+            #owner = owner
+            amount = amount_lamports 
+
+            # Construct the burn instruction
+            params = BurnCheckedParams(
+                program_id=TOKEN_PROGRAM_ID,
+                mint=token_mint,
+                account=associated_token_account,
+                owner=owner,
+                amount=amount,
+                decimals=decimals,
+                signers=[owner]
+            )
+            burn_ix = burn_checked(params=params)
+
+            # CLOSE
+            # Create the close account instruction
+            close_ix = close_account(
+                CloseAccountParams(
+                    program_id=TOKEN_PROGRAM_ID,
+                    account=associated_token_account,
+                    dest=owner,
+                    owner=owner
+                )
+            )
+
+            from solders.message import Message
+            import base64
+            msg = Message(
+                instructions=[set_compute_unit_price(1_000), burn_ix, close_ix],
+                payer=owner
+            )
+
+            tx = Transaction.new_unsigned(message=msg)
+            txn = bytes(tx)
+            if encode_base64:
+                txn = base64.b64encode(txn).decode('ascii')
+        except EntityNotFoundException as enfe:
+            raise enfe
+        except Exception as e:
+            print("request_close_ata_transaction Error: {}".format(e))
+
+    return txn
 
