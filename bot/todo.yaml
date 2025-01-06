@@ -6,13 +6,13 @@
 - EC2:
   √ Deploy app in
     √√ Mini and check if it works
-    - Small and check if it works
+    # - Small and check if it works
   - Have a permanent IP address
 
 - New endopints
   - Post: get burn and close quote
-    - Create openAPI specs
-    - Create pydantic classes
+    √ Create openAPI specs
+    √∫ Create pydantic classes
     - Create enpoint /associated_token_accounts/burn_and_close/quote
       - Will call burn_and_close_associated_token_account without keypair
       - WIll include 5% fees as a new instruction

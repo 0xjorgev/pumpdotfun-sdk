@@ -94,7 +94,7 @@ paths:
                   token_program: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
                   insufficient_data: true
 
-  /associated_token_accounts/burn_and_close/get_transaction:
+  /associated_token_accounts/burn_and_close/transaction:
     post:
       summary: Retrieve a transaction with both burn and close intructions for an associated token account
       requestBody:
@@ -103,20 +103,16 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/GetTransaction'
-            example:
-                quote: "VGhpcyBpcyBhIHNhbXBsZSBxdW90ZSBmb3IgYnVybiBhbmQgY2xvc2U="
       responses:
         '200':
           description: Burn and close quote successfully retrieved.
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  quote:
-                    type: string
-                    format: base64
-                    description: A base64-encoded string representing the quote.
+                $ref: '#/components/schemas/Quote'
+              example:
+                quote: "VGhpcyBpcyBhIHNhbXBsZSBxdW90ZSBmb3IgYnVybiBhbmQgY2xvc2U="
+                
         '404':
           description: Account not found.
           content:
@@ -126,7 +122,7 @@ paths:
                 properties:
                   detail:
                     type: string
-                    example: "Associated token Account not found or miss match."
+                    example: "Associated token Account not found or mismatch."
 
 components:
   schemas:
@@ -233,9 +229,22 @@ components:
         associated_token_account:
           type: string
           description: The associated token account address.
+          pattern: ^[1-9A-HJ-NP-Za-km-z]{44}$
+          example: "7dLn2WU6vX6Yk1BeMoAAumx7grc79TdcUgrpqvA9CvFi"
         token_mint:
           type: string
           description: The mint address of the token.
+          pattern: ^[1-9A-HJ-NP-Za-km-z]{44}$
+          example: "DCmtjvp36JDAmsURBRY4jz5A8PoEXsxaFEAgu7CBpump"
         decimals:
           type: integer
           description: The number of decimals for the token.
+          example: 6
+    
+    Quote:
+      type: object
+      properties:
+        quote:
+          type: string
+          format: base64
+          description: A base64-encoded string representing the quote.

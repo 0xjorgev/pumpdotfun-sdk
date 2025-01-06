@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Annotated, List, Optional
-from pydantic import AnyUrl, BaseModel, Field, model_validator, ValidationError
+from pydantic import AnyUrl, BaseModel, Field, constr
 
 
 AccountAddressType = Annotated[
@@ -105,3 +105,24 @@ class AssociatedTokenAccounts(BaseModel):
     #     if page <= 0 or items <= 0:
     #         raise ValidationError("Both 'page' and 'items' must be greater than 0.")
     #     return values
+class RequestTransaction(BaseModel):
+    associated_token_account: constr(pattern=r'^[1-9A-HJ-NP-Za-km-z]{44}$') = (
+        Field(
+            ...,
+            description='The associated token account address.',
+            example='7dLn2WU6vX6Yk1BeMoAAumx7grc79TdcUgrpqvA9CvFi',
+        )
+    )
+    token_mint: constr(pattern=r'^[1-9A-HJ-NP-Za-km-z]{44}$') = Field(
+        ...,
+        description='The mint address of the token.',
+        example='DCmtjvp36JDAmsURBRY4jz5A8PoEXsxaFEAgu7CBpump',
+    )
+    decimals: int = Field(
+        ..., description='The number of decimals for the token.', example=6
+    )
+
+class Quote(BaseModel):
+    quote: Optional[str] = Field(
+        None, description='A base64-encoded string representing the quote.'
+    )
