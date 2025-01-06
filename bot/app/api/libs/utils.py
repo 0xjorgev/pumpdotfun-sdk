@@ -1,3 +1,4 @@
+import base64
 import math
 import random
 import requests
@@ -10,18 +11,19 @@ from solana.rpc.types import TxOpts
 from solana.rpc.commitment import Confirmed
 
 from solders.pubkey import Pubkey
-from spl.token.instructions import close_account, CloseAccountParams
-from solders.pubkey import Pubkey
+from solders.message import Message
 from solders.keypair import Keypair
 from solders.compute_budget import set_compute_unit_price
 from solders.transaction import Transaction
 from spl.token.instructions import (
     burn_checked,
     BurnCheckedParams,
+    close_account,
+    CloseAccountParams
 )
 from spl.token.constants import ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID
-from api.config import appconfig
-from api.handlers.exceptions import EntityNotFoundException
+from app.api.config import appconfig
+from app.api.handlers.exceptions import EntityNotFoundException
 
 
 async def get_solana_balance(public_key: Pubkey) -> float:
@@ -562,8 +564,6 @@ async def close_ata_transaction(
                 )
             )
 
-            from solders.message import Message
-            import base64
             msg = Message(
                 instructions=[set_compute_unit_price(1_000), burn_ix, close_ix],
                 payer=owner
@@ -573,6 +573,8 @@ async def close_ata_transaction(
             txn = bytes(tx)
             if encode_base64:
                 txn = base64.b64encode(txn).decode('ascii')
+
+
         except EntityNotFoundException as enfe:
             raise enfe
         except Exception as e:
@@ -580,3 +582,86 @@ async def close_ata_transaction(
 
     return txn
 
+
+async def recover_rent_client():
+    from bot.config import appconfig
+    from solders.instruction import Instruction, AccountMeta
+    keypair = Keypair.from_base58_string(appconfig.PRIVKEY)
+
+    body = {
+        "owner": "4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
+        "token_mint": "bpMAcs5cEDu33kbCgTcBu7HtuZwsoNwsMH839jupump",
+        "decimals": 6
+    }
+    try:
+        response = requests.post(
+                url="http://localhost:443/api/associated_token_accounts/burn_and_close/transaction",
+                json=body,
+                headers={"Content-Type": "application/json"}
+            )
+        if response.status_code != 200:
+            print("recover_rent_client: Bad status code '{}' recevied".format(
+                    response.status_code
+                )
+            )
+            return response
+
+        content = response.json()
+        txn_base64 = content["quote"]
+
+        # Decode the Base64 string to bytes
+        txn_bytes = base64.b64decode(txn_base64)
+
+        # Recreate the Transaction object from bytes
+        vst = Transaction.from_bytes(txn_bytes)
+
+        # Get the message from the transaction
+        msg = vst.message
+
+        instructions = [
+            Instruction(
+                program_id=msg.account_keys[ci.program_id_index],
+                accounts=[
+                    AccountMeta(pubkey=msg.account_keys[idx], is_signer=idx == 0, is_writable=True)
+                    for idx in ci.accounts
+                ],
+                data=ci.data
+            )
+            for ci in msg.instructions
+        ]
+
+        # Send the signed transaction (example assumes using a Solana RPC client)
+        async with AsyncClient(appconfig.RPC_URL_HELIUS) as client:
+            blockhash = await client.get_latest_blockhash()
+            recent_blockhash = blockhash.value.blockhash
+
+            signed_tx = Transaction.new_signed_with_payer(
+                instructions=instructions,
+                payer=keypair.pubkey(),
+                signing_keypairs=[keypair],
+                recent_blockhash=recent_blockhash
+            )
+
+            send_result = None
+            tx_signature = await client.send_transaction(
+                txn=signed_tx,
+                opts=TxOpts(preflight_commitment=Confirmed)
+            )
+            print(f"Transaction sent successfully: {tx_signature}")
+
+            current_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
+            print("Test->{} Transaction: https://solscan.io/tx/{} at {}".format(
+                "Transfer",
+                tx_signature.value,
+                current_time
+            ))
+            await client.confirm_transaction(tx_signature.value, commitment="confirmed")
+            print("Transaction confirmed")
+
+        return send_result
+    except Exception as e:
+        print("get_token_accounts_by_owner-> Error: {}".format(e))
+        return response
+
+# import asyncio
+# asyncio.run(recover_rent_client())
