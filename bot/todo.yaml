@@ -13,13 +13,12 @@
   - Post: get burn and close quote
     √ Create openAPI specs
     √ Create pydantic classes
-    - Create enpoint /associated_token_accounts/burn_and_close/quote
-      - Will call burn_and_close_associated_token_account without keypair
-      - WIll include 5% fees as a new instruction
-        - Check lookuptables
-      - Will return a Transaction.new_unsigned (create the Message) 
-        - encode in base58 and return
-
+    √ Create enpoint /associated_token_accounts/burn_and_close/quote
+      √ Will call burn_and_close_associated_token_account without keypair
+      √ Will return a Transaction.new_unsigned (create the Message) 
+        √ encode in base64 and return
+    - WIll include 5% fees as a new instruction
+      - Check lookuptables
   # - Post: send transaction (hablar con Jorge primero)
   #   - Create openAPI specs
   #   - Create pydantic classes
