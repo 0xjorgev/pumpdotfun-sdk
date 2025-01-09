@@ -34,6 +34,8 @@ sudo systemctl restart docker
 docker pull 237733826785.dkr.ecr.eu-west-1.amazonaws.com/ghostfunds-ata-service:latest
 ## List images
 aws ecr list-images --repository-name ghostfunds-ata-service --region eu-west-1
+### Remove previous images
+docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' | grep -v ':latest' | awk '{print $2}' | xargs docker rmi -f
 # Run the docker container
 docker run --memory=512m --memory-swap=512m -d -p 443:8000 237733826785.dkr.ecr.eu-west-1.amazonaws.com/ghostfunds-ata-service:latest
 

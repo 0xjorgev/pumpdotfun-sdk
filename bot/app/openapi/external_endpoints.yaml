@@ -109,6 +109,35 @@ paths:
           content:
             application/json:
               schema:
+                $ref: '#/components/schemas/Instructions'
+              example:
+                quote: "VGhpcyBpcyBhIHNhbXBsZSBxdW90ZSBmb3IgYnVybiBhbmQgY2xvc2U="
+                
+        '404':
+          description: Account not found.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: "Associated token Account not found or mismatch."
+  /associated_token_accounts/burn_and_close/instructions:
+    post:
+      summary: Retrieve a list of instructions in base64 to clse an associated token account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GetTransaction'
+      responses:
+        '200':
+          description: INstrucions successfully retrieved.
+          content:
+            application/json:
+              schema:
                 $ref: '#/components/schemas/Quote'
               example:
                 quote: "VGhpcyBpcyBhIHNhbXBsZSBxdW90ZSBmb3IgYnVybiBhbmQgY2xvc2U="
@@ -123,7 +152,6 @@ paths:
                   detail:
                     type: string
                     example: "Associated token Account not found or mismatch."
-
 components:
   schemas:
     CountAssociatedTokenAccounts:
@@ -226,7 +254,7 @@ components:
     GetTransaction:
       type: object
       properties:
-        owner:
+        associated_token_account:
           type: string
           description: The associated token account address.
           pattern: ^[1-9A-HJ-NP-Za-km-z]{44}$
@@ -248,3 +276,11 @@ components:
           type: string
           format: base64
           description: A base64-encoded string representing the quote.
+
+    Instructions:
+      type: object
+      properties:
+        response:
+          type: string
+          format: base64
+          description: A base64-encoded string representing the list of Instructions.

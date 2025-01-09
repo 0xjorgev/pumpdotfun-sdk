@@ -12,7 +12,7 @@ COPY . /app
 RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Make port 80 available to the world outside this container
+# Make port 443 available to the world outside this container
 EXPOSE 443
 
 # Define environment variable

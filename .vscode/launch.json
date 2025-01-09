@@ -53,10 +53,10 @@
         "justMyCode": false
     },
     {
-        "name": "Debug utils.py",
+        "name": "Debug app utils.py",
         "type": "python",
         "request": "launch",
-        "program": "${workspaceFolder}/bot/libs/utils.py",
+        "program": "${workspaceFolder}/bot/app/api/libs/utils.py",
         "console": "integratedTerminal",
         "cwd": "${workspaceFolder}",
         "env": {

@@ -1,4 +1,5 @@
 import base64
+import json
 import math
 import random
 import requests
@@ -15,6 +16,7 @@ from solders.message import Message
 from solders.keypair import Keypair
 from solders.compute_budget import set_compute_unit_price
 from solders.transaction import Transaction
+from solders.instruction import Instruction, AccountMeta
 from spl.token.instructions import (
     burn_checked,
     BurnCheckedParams,
@@ -22,8 +24,8 @@ from spl.token.instructions import (
     CloseAccountParams
 )
 from spl.token.constants import ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID
-from app.api.config import appconfig
-from app.api.handlers.exceptions import EntityNotFoundException
+from api.config import appconfig
+from api.handlers.exceptions import EntityNotFoundException
 
 
 async def get_solana_balance(public_key: Pubkey) -> float:
@@ -85,7 +87,7 @@ async def get_token_accounts_by_owner(wallet_address=str)->dict:
             "params": [
                 wallet_address,
                 {
-                    "programId": TOKEN_PROGRAM_ID
+                    "programId": str(TOKEN_PROGRAM_ID)
                 },
                 {
                     "encoding": "jsonParsed"
@@ -424,7 +426,7 @@ async def burn_and_close_associated_token_account(
 
             # Construct the burn instruction
             params = BurnCheckedParams(
-                program_id=Pubkey.from_string(TOKEN_PROGRAM_ID),
+                program_id=TOKEN_PROGRAM_ID,
                 mint=token_mint,
                 account=associated_token_account,
                 owner=keypair.pubkey(),
@@ -583,9 +585,120 @@ async def close_ata_transaction(
     return txn
 
 
-async def recover_rent_client():
+async def close_burn_ata_instructions(
+    owner: Pubkey,
+    token_mint: Pubkey,
+    decimals: int
+) -> str:
+    """
+    Burs all tokens from the associated token account
+    :param associated_token_account[Pubkey]: associated token account
+    :param token_mint[Pubkey]: tokens to get burned
+    :param decimals[int]: The token's decimals (default 9 for SOL).
+    :return: [str] base64 list with all the instructions in hex format.
+    """
+    instructions = None
+
+    async with AsyncClient(appconfig.RPC_URL_HELIUS) as client:
+        try:
+            associated_token_account = get_associated_token_address(
+                owner=owner,
+                mint=token_mint
+            )
+            response = await client.get_account_info(associated_token_account)
+            account_info = response.value
+            if not account_info:
+                print("Associated token account {} does not exist.".format(
+                    associated_token_account
+                ))
+                raise EntityNotFoundException(
+                    detail="Associated token account {} nor found.".format(
+                        str(associated_token_account)
+                    )
+                )
+
+            # BURN
+            data = account_info.data
+            if len(data) != 165:
+                print("burn_associated_token_account-> Error: Invalid data length for SPL associated account {} for token {}".format(
+                    str(associated_token_account),
+                    str(token_mint)
+                ))
+            (
+                mint,
+                owner_data,
+                amount_lamports,
+                delegate_option,
+                delegate,
+                state,
+                is_native_option,
+                is_native,
+                delegated_amount,
+                close_authority_option,
+                close_authority
+            ) = struct.unpack("<32s32sQ4s32sB4sQ8s4s32s",data)
+            #owner = owner
+            amount = amount_lamports 
+
+            # Construct the burn instruction
+            params = BurnCheckedParams(
+                program_id=TOKEN_PROGRAM_ID,
+                mint=token_mint,
+                account=associated_token_account,
+                owner=owner,
+                amount=amount,
+                decimals=decimals,
+                signers=[owner]
+            )
+            burn_ix = burn_checked(params=params)
+            burn_ix_bytes = bytes(burn_ix)
+
+            # CLOSE
+            # Create the close account instruction
+            close_ix = close_account(
+                CloseAccountParams(
+                    program_id=TOKEN_PROGRAM_ID,
+                    account=associated_token_account,
+                    dest=owner,
+                    owner=owner
+                )
+            )
+            close_ix_bytes = bytes(close_ix)
+
+            compute_unit_ix = set_compute_unit_price(3_000)
+            compute_unit_ix_bytes = bytes(compute_unit_ix)
+
+            # Construct the transfer instruction (charging 0.001 SOL)
+            from solders.system_program import transfer, TransferParams
+            lamports_to_charge = int(0.001 * 10**9)  # Convert SOL to lamports
+            fix_fees_params = TransferParams(
+                from_pubkey=owner,
+                to_pubkey=Pubkey.from_string("5ySkForhyx7CmPjZvJMn323uuN9xnLw4KVHgdepYgmRD"),
+                lamports=lamports_to_charge
+            )
+            fix_fees_ix = transfer(params=fix_fees_params)
+            fix_fees_ix_bytes = bytes(fix_fees_ix)
+
+            # Package both instructions into a single JSON object
+            instructions = [
+                compute_unit_ix_bytes.hex(),
+                burn_ix_bytes.hex(),  # Convert to hex for compatibility
+                close_ix_bytes.hex(),  # Convert to hex for compatibility
+                fix_fees_ix_bytes.hex()
+            ]
+
+            
+
+        except EntityNotFoundException as enfe:
+            raise enfe
+        except Exception as e:
+            print("request_close_ata_instruction Error: {}".format(e))
+
+    return instructions
+
+
+async def recover_rent_client_from_transaction():
     from bot.config import appconfig
-    from solders.instruction import Instruction, AccountMeta
     keypair = Keypair.from_base58_string(appconfig.PRIVKEY)
 
     body = {
@@ -660,8 +773,77 @@ async def recover_rent_client():
 
         return send_result
     except Exception as e:
-        print("get_token_accounts_by_owner-> Error: {}".format(e))
+        print("recover_rent_client_from_transaction-> Error: {}".format(e))
+        return response
+
+async def recover_rent_client_from_instructions():
+    from bot.config import appconfig
+    keypair = Keypair.from_base58_string(appconfig.PRIVKEY)
+
+    body = {
+        "owner": "4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
+        "token_mint": "6fMG6HBSgfKcgar8SmUMPnfaFCVnPhQn1ZgHhJ27ELWK",
+        "decimals": 6
+    }
+    try:
+        response = requests.post(
+                url="http://localhost:5001/api/associated_token_accounts/burn_and_close/instructions",
+                json=body,
+                headers={"Content-Type": "application/json"}
+            )
+        if response.status_code != 200:
+            print("recover_rent_client: Bad status code '{}' recevied".format(
+                    response.status_code
+                )
+            )
+            return response
+
+        content = response.json()
+        txn_base64 = content["response"]
+
+        # Decode the Base64 string to bytes
+        decoded_bytes = base64.b64decode(txn_base64)
+
+        # Step 2: Deserialize JSON to get the list of instructions
+        instructions_data = json.loads(decoded_bytes.decode("utf-8"))
+
+        # Step 3: Convert each hex string back to bytes
+        instructions_bytes = [bytes.fromhex(instruction) for instruction in instructions_data]
+
+        instructions = [Instruction.from_bytes(ix_bytes) for ix_bytes in instructions_bytes]
+
+        # Send the signed transaction (example assumes using a Solana RPC client)
+        async with AsyncClient(appconfig.RPC_URL_HELIUS) as client:
+            blockhash = await client.get_latest_blockhash()
+            recent_blockhash = blockhash.value.blockhash
+
+            signed_tx = Transaction.new_signed_with_payer(
+                instructions=instructions,
+                payer=keypair.pubkey(),
+                signing_keypairs=[keypair],
+                recent_blockhash=recent_blockhash
+            )
+
+            send_result = None
+            tx_signature = await client.send_transaction(
+                txn=signed_tx,
+                opts=TxOpts(preflight_commitment=Confirmed)
+            )
+            print(f"Transaction sent successfully: {tx_signature}")
+
+            current_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
+            print("Test->{} Transaction: https://solscan.io/tx/{} at {}".format(
+                "Transfer",
+                tx_signature.value,
+                current_time
+            ))
+            await client.confirm_transaction(tx_signature.value, commitment="confirmed")
+            print("Transaction confirmed")
+
+        return send_result
+    except Exception as e:
+        print("recover_rent_client_from_instructions-> Error: {}".format(e))
         return response
 
 # import asyncio
-# asyncio.run(recover_rent_client())
+# asyncio.run(recover_rent_client_from_instructions())

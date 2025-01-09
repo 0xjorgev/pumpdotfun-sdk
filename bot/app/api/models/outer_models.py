@@ -126,3 +126,8 @@ class Quote(BaseModel):
     quote: Optional[str] = Field(
         None, description='A base64-encoded string representing the quote.'
     )
+
+class Instructions(BaseModel):
+    response: Optional[str] = Field(
+        None, description='A base64-encoded string representing the list of instructions in hex format.'
+    )
