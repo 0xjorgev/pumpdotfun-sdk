@@ -15,6 +15,7 @@ from solders.pubkey import Pubkey
 from solders.message import Message
 from solders.keypair import Keypair
 from solders.compute_budget import set_compute_unit_price
+from solders.system_program import transfer, TransferParams
 from solders.transaction import Transaction
 from solders.instruction import Instruction, AccountMeta
 from spl.token.instructions import (
@@ -77,8 +78,8 @@ def get_solana_price() -> float:
     
     return price
 
-async def get_token_accounts_by_owner(wallet_address=str)->dict:
-    response = {}
+async def get_token_accounts_by_owner(wallet_address=str)->list[dict]:
+    value = []
     async with AsyncClient(appconfig.RPC_URL_HELIUS) as client:
         data = {
             "jsonrpc": "2.0",
@@ -101,20 +102,20 @@ async def get_token_accounts_by_owner(wallet_address=str)->dict:
                     headers={"Content-Type": "application/json"}
                 )
             if response.status_code != 200:
-                print("get_token_accounts_by_owner: Bad status code '{}' recevied for token {}".format(
+                print("get_token_accounts_by_owner: Bad status code '{}' received for token {}".format(
                         response.status_code,
                         wallet_address
                     )
                 )
-                return response
+                return value
 
             content = response.json()
-            response = content["result"]["value"]
+            value = content["result"]["value"]
 
-            return response
+            return value
         except Exception as e:
             print("get_token_accounts_by_owner-> Error: {}".format(e))
-            return response
+            return value
 
 def get_token_metadata(token_address: str)->dict:
     metadata = {}
@@ -181,9 +182,31 @@ def get_token_metadata(token_address: str)->dict:
 
     return metadata
 
+def get_current_ghostfunds_fees(burnable_accounts: int)->float:
+    """
+    Return GhostFunds fee based on how many ata can be burned.
+    :param burnable_accounts [int]: how many atas
+    :return [float]: fee percentage
+    """
+    fee = 0
+    # Validate input
+    if burnable_accounts <= 0:
+        return fee
+
+    # Iterate through the fee tiers to find the applicable fee
+    for upper_limit, ghost_fee in sorted(appconfig.GHOSTFUNDS_FEES_PERCENTAGES.items()):
+        if burnable_accounts > upper_limit:
+            fee = ghost_fee
+            continue
+        return fee
+     
+    # If the burnable_accounts exceed the highest limit, return the lowest fee
+    return appconfig.GHOSTFUNDS_FEES_PERCENTAGES[max(appconfig.GHOSTFUNDS_FEES_PERCENTAGES.keys())]
+
+
 async def count_associated_token_accounts(
     wallet_pubkey: Pubkey
-) -> int:
+) -> dict:
     """
     Fetch the amount of associated token accounts an address holds
     :param wallet_pubkey: The public address of the Solana wallet.
@@ -194,14 +217,25 @@ async def count_associated_token_accounts(
         "burnable_accounts": 0,
         "accounts_for_manual_review": 0,
         "rent_balance": 0,
-        "rent_balance_usd": 0
+        "rent_balance_usd": 0,
+        "fee": 0
     }
     min_token_value = 1
     account_samples = 5
 
     # TODO: implement token's black list (like USDC, etc)
     token_blacklist = []
-    original_accounts = await get_token_accounts_by_owner(wallet_address=str(wallet_pubkey))
+
+    original_accounts = []
+    counter = 0
+    while True:
+        if counter >= appconfig.RETRIES:
+            break
+        original_accounts = await get_token_accounts_by_owner(wallet_address=str(wallet_pubkey))
+        if original_accounts:
+            break
+        counter += 1
+    
     usd_sol_value = 0
 
     accounts = [
@@ -245,6 +279,9 @@ async def count_associated_token_accounts(
             print("token {} has significan value".format(mint))
 
     total["accounts_for_manual_review"] = accounts_for_manual_review
+
+    if total["burnable_accounts"] > 0:
+        total["fee"] = get_current_ghostfunds_fees(burnable_accounts=total["burnable_accounts"])
 
     return total
 
@@ -585,16 +622,43 @@ async def close_ata_transaction(
     return txn
 
 
+def get_fee_instructions(
+    fee: float,
+    balance: float,
+    owner: Pubkey
+)->list[Instruction]:
+    # Fix fee
+    lamports_to_charge = int(appconfig.GHOSTFUNDS_FIX_FEES * 10**9)  # Convert SOL to lamports
+    fix_fees_params = TransferParams(
+        from_pubkey=owner,
+        to_pubkey=Pubkey.from_string(appconfig.GHOSTFUNDS_FIX_FEES_RECEIVER),
+        lamports=lamports_to_charge
+    )
+    fix_fees_ix = transfer(params=fix_fees_params)
+    # Variable fee
+    lamports_to_charge = int(balance * fee * 10**9)                  # Convert SOL to lamports
+    variable_fees_params = TransferParams(
+        from_pubkey=owner,
+        to_pubkey=Pubkey.from_string(appconfig.GHOSTFUNDS_VARIABLE_FEES_RECEIVER),
+        lamports=lamports_to_charge
+    )
+    variable_fees_ix = transfer(params=variable_fees_params)
+    return [fix_fees_ix, variable_fees_ix]
+
 async def close_burn_ata_instructions(
     owner: Pubkey,
     token_mint: Pubkey,
-    decimals: int
-) -> str:
+    decimals: int,
+    balance: float,
+    fee: float
+) -> list[hex]:
     """
     Burs all tokens from the associated token account
     :param associated_token_account[Pubkey]: associated token account
     :param token_mint[Pubkey]: tokens to get burned
     :param decimals[int]: The token's decimals (default 9 for SOL).
+    :param balance[float]: The ATA Sol balance (for fee calculation)
+    :param fee[float]: GhostFunds fee to be charge to user.
     :return: [str] base64 list with all the instructions in hex format.
     """
     instructions = None
@@ -665,29 +729,21 @@ async def close_burn_ata_instructions(
             )
             close_ix_bytes = bytes(close_ix)
 
-            compute_unit_ix = set_compute_unit_price(3_000)
+            compute_unit_ix = set_compute_unit_price(5_000)
             compute_unit_ix_bytes = bytes(compute_unit_ix)
 
-            # Construct the transfer instruction (charging 0.001 SOL)
-            from solders.system_program import transfer, TransferParams
-            lamports_to_charge = int(0.001 * 10**9)  # Convert SOL to lamports
-            fix_fees_params = TransferParams(
-                from_pubkey=owner,
-                to_pubkey=Pubkey.from_string("5ySkForhyx7CmPjZvJMn323uuN9xnLw4KVHgdepYgmRD"),
-                lamports=lamports_to_charge
-            )
-            fix_fees_ix = transfer(params=fix_fees_params)
-            fix_fees_ix_bytes = bytes(fix_fees_ix)
+            # Variable fee
+            fee_ix_list = get_fee_instructions(fee=fee, balance=balance, owner=owner)
+            fee_ix_list_bytes = [bytes(fee_ix) for fee_ix in fee_ix_list]
+            fee_ix_list_hex = [fee_ix_bytes.hex() for fee_ix_bytes in fee_ix_list_bytes]
 
             # Package both instructions into a single JSON object
             instructions = [
-                compute_unit_ix_bytes.hex(),
-                burn_ix_bytes.hex(),  # Convert to hex for compatibility
-                close_ix_bytes.hex(),  # Convert to hex for compatibility
-                fix_fees_ix_bytes.hex()
+                compute_unit_ix_bytes.hex(),  # Convert to hex for compatibility
+                burn_ix_bytes.hex(),   
+                close_ix_bytes.hex(),
             ]
-
-            
+            instructions.extend(fee_ix_list_hex)
 
         except EntityNotFoundException as enfe:
             raise enfe
@@ -782,8 +838,10 @@ async def recover_rent_client_from_instructions():
 
     body = {
         "owner": "4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
-        "token_mint": "6fMG6HBSgfKcgar8SmUMPnfaFCVnPhQn1ZgHhJ27ELWK",
-        "decimals": 6
+        "token_mint": "5PTGpK7mEPHsWwTigA8CRv5vzdEPsSHee5crUj8Cpump",
+        "decimals": 6,
+        "balance": 0.002039,
+        "fee": 0.045
     }
     try:
         response = requests.post(

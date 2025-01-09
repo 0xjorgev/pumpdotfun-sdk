@@ -20,12 +20,6 @@ def validate_account_address(account_address: AccountAddressType) -> str:
 async def associated_token_accounts_count(
     account_address: str = Depends(validate_account_address)
 ):
-    # Mock logic for checking account existence (replace with actual logic)
-    # if account_address != "4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb":
-    #     raise HTTPException(
-    #         status_code=404,
-    #         detail="Account not found."
-    #     )
     wallet_pubkey = Pubkey.from_string(account_address)
     data = await count_associated_token_accounts(wallet_pubkey=wallet_pubkey)
     response = CountAssociatedTokenAccounts(
@@ -33,7 +27,8 @@ async def associated_token_accounts_count(
         burnable_accounts=data["burnable_accounts"],
         accounts_for_manual_review=data["accounts_for_manual_review"],
         rent_balance=data["rent_balance"],
-        rent_balance_usd=data["rent_balance_usd"]
+        rent_balance_usd=data["rent_balance_usd"],
+        fee=data["fee"]
     )
     return response
 

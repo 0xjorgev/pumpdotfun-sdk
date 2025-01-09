@@ -1,7 +1,5 @@
 # TODO
-- app 
-  - Pagination:
-    - Speed up: Add pagination to detect_dust_token_accounts function
+- TODO: fees. Send instruction request in base64 to avoid "otros" to see our fees
 
 - EC2:
   √ Deploy app in
@@ -13,22 +11,20 @@
   - Post: get burn and close quote
     √ Create openAPI specs
     √ Create pydantic classes
-    √ Create enpoint /associated_token_accounts/burn_and_close/quote
+    √ Create enpoint /associated_token_accounts/burn_and_close/transaction
       √ Will call burn_and_close_associated_token_account without keypair
       √ Will return a Transaction.new_unsigned (create the Message) 
         √ encode in base64 and return
     - WIll include 5% fees as a new instruction
       - Check lookuptables
-  # - Post: send transaction (hablar con Jorge primero)
-  #   - Create openAPI specs
-  #   - Create pydantic classes
-  #   - Create enpoint /associated_token_accounts/burn_and_close
-  #     - Will receive the signed transaction in base 58 and decode it
-  #     - Will send the transaction and return the signature.
-  #     - The front will take care of confirming the txn.
-
-
-
+      √ Create new function get_current_ghostfunds_fees(ata_to_be_closed: int)->float
+      √ Return the fees in the count endpoint
+      √ Get the fee as a new input variable in:
+        /associated_token_accounts/burn_and_close/instructions
+      √ Create a new function get_fee_instructions(fees: float)->[Instruction]
+        √ Business logic will be defined here
+        √ Phase1: All 5% will go to Ghost account
+        - Phase2: When we have a token. We'll sent some % to another Ghost account to finally buy our own tokens.
 
 
 - BUG: when a timeout occurs during subscription, the next step is

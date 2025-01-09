@@ -33,6 +33,7 @@ paths:
                 accounts_for_manual_review: 0
                 rent_balance: 0.08972832
                 rent_balance_usd: 16.3628564352
+                fee: 0.05
         '404':
           description: Account not found.
           content:
@@ -138,9 +139,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Quote'
+                $ref: '#/components/schemas/Instructions'
               example:
-                quote: "VGhpcyBpcyBhIHNhbXBsZSBxdW90ZSBmb3IgYnVybiBhbmQgY2xvc2U="
+                response: "VGhpcyBpcyBhIHNhbXBsZSBxdW90ZSBmb3IgYnVybiBhbmQgY2xvc2U="
                 
         '404':
           description: Account not found.
@@ -174,6 +175,10 @@ components:
           type: number
           format: float
           description: Total rent balance converted to USD.
+        fee:
+          type: number
+          format: float
+          description: Fees to be applied based on burnable accounts
 
     AssociatedTokenAccounts:
       type: array
@@ -268,6 +273,16 @@ components:
           type: integer
           description: The number of decimals for the token.
           example: 6
+        balance:
+          type: number
+          format: float
+          description: ATA Sol balance
+          example: 0.00203928
+        fee:
+          type: number
+          format: float
+          description: Fees to be applied based on burnable accounts
+          example: 0.05
     
     Quote:
       type: object

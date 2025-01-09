@@ -22,6 +22,15 @@ class AuthConfig:
     FEES = float(os.environ.get("FEES", 0.0015))
     FEES_INCREASMENT = 0.000805
     FEES_BPS = float(os.environ.get("FEES", 0.0005)) * 10000   # Fees in BPS
+    GHOSTFUNDS_FIX_FEES = 0.00001
+    GHOSTFUNDS_FEES_PERCENTAGES = {
+        1: 0.05,
+        100: 0.048,
+        500: 0.045,
+        1000: 0.04
+    }
+    GHOSTFUNDS_FIX_FEES_RECEIVER = "5ySkForhyx7CmPjZvJMn323uuN9xnLw4KVHgdepYgmRD"
+    GHOSTFUNDS_VARIABLE_FEES_RECEIVER = "5ySkForhyx7CmPjZvJMn323uuN9xnLw4KVHgdepYgmRD"
 
     RETRIES = 5
     RPC_URL_HELIUS = "https://mainnet.helius-rpc.com/?api-key=f32b640c-6877-43e7-924b-2035b448d17e"

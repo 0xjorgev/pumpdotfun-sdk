@@ -22,11 +22,15 @@ async def request_close_ata_instructions(
         owner = body.owner
         token = body.token_mint
         decimals = body.decimals
+        balance = body.balance
+        fee = body.fee
 
         instructions = await close_burn_ata_instructions(
             owner=Pubkey.from_string(owner),
             token_mint=Pubkey.from_string(token),
-            decimals=decimals
+            decimals=decimals,
+            balance=balance,
+            fee=fee
         )
 
         # Serialize JSON object to bytes

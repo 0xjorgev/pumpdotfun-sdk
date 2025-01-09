@@ -30,6 +30,9 @@ class CountAssociatedTokenAccounts(BaseModel):
     rent_balance_usd:  float = Field(
         0, description='Total rent balance converted to USD.'
     )
+    fee:  float = Field(
+        0, description='GhostFunds fee.'
+    )
 
 
 class AssociatedTokenAccount(BaseModel):
@@ -105,6 +108,7 @@ class AssociatedTokenAccounts(BaseModel):
     #     if page <= 0 or items <= 0:
     #         raise ValidationError("Both 'page' and 'items' must be greater than 0.")
     #     return values
+
 class RequestTransaction(BaseModel):
     owner: constr(pattern=r'^[1-9A-HJ-NP-Za-km-z]{44}$') = (
         Field(
@@ -120,6 +124,12 @@ class RequestTransaction(BaseModel):
     )
     decimals: int = Field(
         ..., description='The number of decimals for the token.', example=6
+    )
+    balance: float = Field(
+        ..., description='ATA SOls balance'
+    )
+    fee: float = Field(
+        ..., description='GhostFunds fee.'
     )
 
 class Quote(BaseModel):
