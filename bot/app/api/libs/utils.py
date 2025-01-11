@@ -15,9 +15,9 @@ from solders.pubkey import Pubkey
 from solders.message import Message
 from solders.keypair import Keypair
 from solders.compute_budget import set_compute_unit_price
-from solders.system_program import transfer, TransferParams
 from solders.transaction import Transaction
 from solders.instruction import Instruction, AccountMeta
+from solders.system_program import transfer, TransferParams
 from spl.token.instructions import (
     burn_checked,
     BurnCheckedParams,
@@ -194,14 +194,14 @@ def get_current_ghostfunds_fees(burnable_accounts: int)->float:
         return fee
 
     # Iterate through the fee tiers to find the applicable fee
-    for upper_limit, ghost_fee in sorted(appconfig.GHOSTFUNDS_FEES_PERCENTAGES.items()):
+    for upper_limit, ghost_fee in sorted(appconfig.GHOSTFUNDS_FEES.items()):
         if burnable_accounts > upper_limit:
             fee = ghost_fee
             continue
         return fee
      
     # If the burnable_accounts exceed the highest limit, return the lowest fee
-    return appconfig.GHOSTFUNDS_FEES_PERCENTAGES[max(appconfig.GHOSTFUNDS_FEES_PERCENTAGES.keys())]
+    return appconfig.GHOSTFUNDS_FEES[max(appconfig.GHOSTFUNDS_FEES.keys())]
 
 
 async def count_associated_token_accounts(
@@ -628,7 +628,7 @@ def get_fee_instructions(
     owner: Pubkey
 )->list[Instruction]:
     # Fix fee
-    lamports_to_charge = int(appconfig.GHOSTFUNDS_FIX_FEES * 10**9)  # Convert SOL to lamports
+    lamports_to_charge = int(0.001 * 10**9)  # Convert SOL to lamports
     fix_fees_params = TransferParams(
         from_pubkey=owner,
         to_pubkey=Pubkey.from_string(appconfig.GHOSTFUNDS_FIX_FEES_RECEIVER),
@@ -636,7 +636,7 @@ def get_fee_instructions(
     )
     fix_fees_ix = transfer(params=fix_fees_params)
     # Variable fee
-    lamports_to_charge = int(balance * fee * 10**9)                  # Convert SOL to lamports
+    lamports_to_charge = int(balance * fee * 10**9)  # Convert SOL to lamports
     variable_fees_params = TransferParams(
         from_pubkey=owner,
         to_pubkey=Pubkey.from_string(appconfig.GHOSTFUNDS_VARIABLE_FEES_RECEIVER),
@@ -729,7 +729,7 @@ async def close_burn_ata_instructions(
             )
             close_ix_bytes = bytes(close_ix)
 
-            compute_unit_ix = set_compute_unit_price(5_000)
+            compute_unit_ix = set_compute_unit_price(3_000)
             compute_unit_ix_bytes = bytes(compute_unit_ix)
 
             # Variable fee
@@ -764,7 +764,7 @@ async def recover_rent_client_from_transaction():
     }
     try:
         response = requests.post(
-                url="http://localhost:443/api/associated_token_accounts/burn_and_close/transaction",
+                url="http://localhost:5001/api/associated_token_accounts/burn_and_close/instructions",
                 json=body,
                 headers={"Content-Type": "application/json"}
             )
@@ -838,7 +838,7 @@ async def recover_rent_client_from_instructions():
 
     body = {
         "owner": "4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
-        "token_mint": "5PTGpK7mEPHsWwTigA8CRv5vzdEPsSHee5crUj8Cpump",
+        "token_mint": "DZp2GZjhgLTD2hyLowCZ8pu1evbA9wivV9JURts8LmNt",
         "decimals": 6,
         "balance": 0.002039,
         "fee": 0.045

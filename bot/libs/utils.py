@@ -758,7 +758,7 @@ async def burn_and_close_associated_token_account(
     return txn_signature
 
 
-def generate_vanity_wallet(prefix: str) -> Keypair:
+def generate_vanity_wallet(prefix: str, key_sensitive: bool = False) -> Keypair:
     counter = 0
     start_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
     print("starting generate_vanity_wallet at {}".format(start_time))
@@ -769,7 +769,9 @@ def generate_vanity_wallet(prefix: str) -> Keypair:
         public_key = str(keypair.pubkey())
         
         # Check if the public key starts with the desired prefix
-        if public_key.lower().startswith(prefix.lower()):
+        validator = public_key.lower().startswith(prefix.lower()) if not key_sensitive else public_key.startswith(prefix)
+
+        if validator:
             stop_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
             print("Pubkey: {}".format(public_key))
             pk = base58.b58encode(bytes(keypair)).decode()
@@ -787,7 +789,7 @@ async def test():
 
     # Generate the vanity wallet
     print(f"Generating wallet with prefix '{prefix}'...")
-    keypair = generate_vanity_wallet(prefix)
+    keypair = generate_vanity_wallet(prefix, key_sensitive=True)
 
     if keypair:
         return
