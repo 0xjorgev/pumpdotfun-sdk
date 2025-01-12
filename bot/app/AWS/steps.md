@@ -30,18 +30,23 @@ groups
 ls -l /var/run/docker.sock
 ## restart 
 sudo systemctl restart docker
-# Pull the image
+
+# Pull the image ###########################
 docker pull 237733826785.dkr.ecr.eu-west-1.amazonaws.com/ghostfunds-ata-service:latest
 ## List images
-aws ecr list-images --repository-name ghostfunds-ata-service --region eu-west-1
+#### aws ecr list-images --repository-name ghostfunds-ata-service --region eu-west-1
+### Stop current docker conatiner
+CONTAINER_ID=$(docker ps | awk 'NR==2 {print $1}')
+docker stop $CONTAINER_ID
 ### Remove previous images
 docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' | grep -v ':latest' | awk '{print $2}' | xargs docker rmi -f
 # Run the docker container
 docker run --memory=512m --memory-swap=512m -d -p 443:8000 237733826785.dkr.ecr.eu-west-1.amazonaws.com/ghostfunds-ata-service:latest
+### #####################################
 
 # Start Docker when EC2 instance starts
 ## Create start-docker-container.sh and add the code 
-### - look into /spp/AWS/start-docker-container.sh
+### - look into /app/AWS/start-docker-container.sh
 ### - Adjust if dockerimage id changes
 sudo vim /etc/init.d/start-docker-container.sh
 

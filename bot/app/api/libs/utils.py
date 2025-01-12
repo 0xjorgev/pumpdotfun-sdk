@@ -30,10 +30,10 @@ from spl.token.instructions import (
     CloseAccountParams
 )
 from spl.token.constants import ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID
-# from api.config import appconfig
-# from api.handlers.exceptions import EntityNotFoundException
-from bot.app.api.config import appconfig
-from bot.app.api.handlers.exceptions import EntityNotFoundException
+from api.config import appconfig
+from api.handlers.exceptions import EntityNotFoundException
+# from bot.app.api.config import appconfig
+# from bot.app.api.handlers.exceptions import EntityNotFoundException
 
 async def get_solana_balance(public_key: Pubkey) -> float:
     """
@@ -81,7 +81,7 @@ def get_solana_price() -> float:
                 retries
             ))
             time.sleep(counter)
-    
+
     return price
 
 async def get_token_accounts_by_owner(wallet_address=str)->list[dict]:
@@ -205,7 +205,7 @@ def get_current_ghostfunds_fees(burnable_accounts: int)->float:
             fee = ghost_fee
             continue
         return fee
-     
+
     # If the burnable_accounts exceed the highest limit, return the lowest fee
     return appconfig.GHOSTFUNDS_FEES_PERCENTAGES[max(appconfig.GHOSTFUNDS_FEES_PERCENTAGES.keys())]
 
@@ -241,11 +241,11 @@ async def count_associated_token_accounts(
         if original_accounts:
             break
         counter += 1
-    
+
     usd_sol_value = 0
 
     accounts = [
-        account for account in original_accounts 
+        account for account in original_accounts
         if account["account"]["data"]["parsed"]["info"]["mint"] not in token_blacklist
     ]
 
@@ -314,13 +314,13 @@ async def detect_dust_token_accounts(
             token_blacklist = []
             original_accounts = await get_token_accounts_by_owner(wallet_address=str(wallet_pubkey))
             accounts = [
-                account for account in original_accounts 
+                account for account in original_accounts
                 if account["account"]["data"]["parsed"]["info"]["mint"] not in token_blacklist
             ]
 
             if not accounts:
                 return [], page, total_items
-            
+
             # Fetch the current Solana price
             sol_price = get_solana_price()
             if sol_price == 0:
@@ -346,10 +346,10 @@ async def detect_dust_token_accounts(
             account_output = []
             # Sort ATAs by mint address (this will help with the pagination)
             sorted_accounts = sorted(
-                accounts, 
+                accounts,
                 key=lambda x: x["account"]["data"]["parsed"]["info"]["mint"]
             )
-            
+
             # Pagination
             total_items = len(sorted_accounts)
             # We can't expect to have more items in a page than what we have. Ex: can't have 50 page items on 10 items in total
@@ -376,7 +376,7 @@ async def detect_dust_token_accounts(
 
                 token_price = metadata["price_info"]["price_per_token"]
                 token_value = token_price * token_amount
-                
+
                 uri = metadata["uri"]
                 cdn_uri = metadata["cdn_uri"]
                 mime = metadata["mime"]
@@ -465,7 +465,7 @@ async def burn_and_close_associated_token_account(
                 close_authority
             ) = struct.unpack("<32s32sQ4s32sB4sQ8s4s32s",data)
             owner = owner
-            amount = amount_lamports 
+            amount = amount_lamports
 
             # Construct the burn instruction
             params = BurnCheckedParams(
@@ -584,7 +584,7 @@ async def close_ata_transaction(
                 close_authority
             ) = struct.unpack("<32s32sQ4s32sB4sQ8s4s32s",data)
             #owner = owner
-            amount = amount_lamports 
+            amount = amount_lamports
 
             # Construct the burn instruction
             params = BurnCheckedParams(
@@ -708,7 +708,7 @@ async def close_burn_ata_instructions(
                 close_authority
             ) = struct.unpack("<32s32sQ4s32sB4sQ8s4s32s",data)
             #owner = owner
-            amount = amount_lamports 
+            amount = amount_lamports
 
             # Construct the burn instruction
             params = BurnCheckedParams(
@@ -756,7 +756,7 @@ async def close_burn_ata_instructions(
                 compute_unit_price_ix_bytes.hex(),  # Convert to hex for compatibility
                 compute_unit_limit_ix_bytes.hex(),
                 request_heap_frame_ix_bytes.hex(),
-                burn_ix_bytes.hex(),   
+                burn_ix_bytes.hex(),
                 close_ix_bytes.hex(),
             ]
             instructions.extend(fee_ix_list_hex)
@@ -853,7 +853,7 @@ async def recover_rent_client_from_instructions(go_local: bool = True):
 
     body = {
         "owner": "4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
-        "token_mint": "B7Bo6nKHLewLXm9YEyyfjPECVnPx74ga5YH4r9Tfpump",
+        "token_mint": "BHKtPF6iZxUG6GePWx2UgNM9xefkk8sTE4gfUsaypump",
         "decimals": 6,
         "balance": 0.002039,
         "fee": 0.045
@@ -862,7 +862,7 @@ async def recover_rent_client_from_instructions(go_local: bool = True):
         instructions = []
         if not go_local:
             response = requests.post(
-                    url="http://localhost:5001/api/associated_token_accounts/burn_and_close/instructions",
+                    url="http://3.255.102.199:443/api/associated_token_accounts/burn_and_close/instructions",
                     json=body,
                     headers={"Content-Type": "application/json"}
                 )
@@ -890,7 +890,7 @@ async def recover_rent_client_from_instructions(go_local: bool = True):
                 balance=body["balance"],
                 fee=body["fee"]
             )
-        
+
         # Step 3: Convert each hex string back to bytes
         instructions_bytes = [bytes.fromhex(instruction) for instruction in instructions_data]
 
@@ -932,7 +932,7 @@ async def recover_rent_client_from_instructions(go_local: bool = True):
         return send_result
     except Exception as e:
         print("recover_rent_client_from_instructions-> Error: {}".format(e))
-        
+
 
 # import asyncio
 # asyncio.run(recover_rent_client_from_instructions(go_local=False))
