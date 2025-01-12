@@ -29,8 +29,8 @@ class AuthConfig:
         500: 0.045,
         1000: 0.04
     }
-    GHOSTFUNDS_FIX_FEES_RECEIVER = "5ySkForhyx7CmPjZvJMn323uuN9xnLw4KVHgdepYgmRD"
-    GHOSTFUNDS_VARIABLE_FEES_RECEIVER = "5ySkForhyx7CmPjZvJMn323uuN9xnLw4KVHgdepYgmRD"
+    GHOSTFUNDS_FIX_FEES_RECEIVER = "GhoStvfwEx5FYEX7jMEpsu6R13xJFJdTLs4BxEpB9qxQ"
+    GHOSTFUNDS_VARIABLE_FEES_RECEIVER = "Ghost5UYkXcgLdja6Uhyac3gTnuefrx7TuSFat5JUVdW"
 
     RETRIES = 5
     RPC_URL_HELIUS = "https://mainnet.helius-rpc.com/?api-key=f32b640c-6877-43e7-924b-2035b448d17e"

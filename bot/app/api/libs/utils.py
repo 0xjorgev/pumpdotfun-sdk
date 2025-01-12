@@ -11,13 +11,18 @@ from solana.rpc.async_api import AsyncClient
 from solana.rpc.types import TxOpts
 from solana.rpc.commitment import Confirmed
 
-from solders.pubkey import Pubkey
-from solders.message import Message
-from solders.keypair import Keypair
-from solders.compute_budget import set_compute_unit_price
-from solders.transaction import Transaction
+from solders.compute_budget import (
+    request_heap_frame,
+    set_compute_unit_limit,
+    set_compute_unit_price
+)
 from solders.instruction import Instruction, AccountMeta
+from solders.keypair import Keypair
+from solders.message import Message
+from solders.pubkey import Pubkey
 from solders.system_program import transfer, TransferParams
+from solders.transaction import Transaction
+
 from spl.token.instructions import (
     burn_checked,
     BurnCheckedParams,
@@ -25,9 +30,10 @@ from spl.token.instructions import (
     CloseAccountParams
 )
 from spl.token.constants import ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID
-from api.config import appconfig
-from api.handlers.exceptions import EntityNotFoundException
-
+# from api.config import appconfig
+# from api.handlers.exceptions import EntityNotFoundException
+from bot.app.api.config import appconfig
+from bot.app.api.handlers.exceptions import EntityNotFoundException
 
 async def get_solana_balance(public_key: Pubkey) -> float:
     """
@@ -194,14 +200,14 @@ def get_current_ghostfunds_fees(burnable_accounts: int)->float:
         return fee
 
     # Iterate through the fee tiers to find the applicable fee
-    for upper_limit, ghost_fee in sorted(appconfig.GHOSTFUNDS_FEES.items()):
+    for upper_limit, ghost_fee in sorted(appconfig.GHOSTFUNDS_FEES_PERCENTAGES.items()):
         if burnable_accounts > upper_limit:
             fee = ghost_fee
             continue
         return fee
      
     # If the burnable_accounts exceed the highest limit, return the lowest fee
-    return appconfig.GHOSTFUNDS_FEES[max(appconfig.GHOSTFUNDS_FEES.keys())]
+    return appconfig.GHOSTFUNDS_FEES_PERCENTAGES[max(appconfig.GHOSTFUNDS_FEES_PERCENTAGES.keys())]
 
 
 async def count_associated_token_accounts(
@@ -628,7 +634,7 @@ def get_fee_instructions(
     owner: Pubkey
 )->list[Instruction]:
     # Fix fee
-    lamports_to_charge = int(0.001 * 10**9)  # Convert SOL to lamports
+    lamports_to_charge = int(appconfig.GHOSTFUNDS_FIX_FEES * 10**9)  # Convert SOL to lamports
     fix_fees_params = TransferParams(
         from_pubkey=owner,
         to_pubkey=Pubkey.from_string(appconfig.GHOSTFUNDS_FIX_FEES_RECEIVER),
@@ -636,7 +642,7 @@ def get_fee_instructions(
     )
     fix_fees_ix = transfer(params=fix_fees_params)
     # Variable fee
-    lamports_to_charge = int(balance * fee * 10**9)  # Convert SOL to lamports
+    lamports_to_charge = int(balance * fee * 10**9)                  # Convert SOL to lamports
     variable_fees_params = TransferParams(
         from_pubkey=owner,
         to_pubkey=Pubkey.from_string(appconfig.GHOSTFUNDS_VARIABLE_FEES_RECEIVER),
@@ -729,8 +735,16 @@ async def close_burn_ata_instructions(
             )
             close_ix_bytes = bytes(close_ix)
 
-            compute_unit_ix = set_compute_unit_price(3_000)
-            compute_unit_ix_bytes = bytes(compute_unit_ix)
+            compute_unit_price_ix = set_compute_unit_price(5_000)
+            compute_unit_price_ix_bytes = bytes(compute_unit_price_ix)
+
+            compute_unit_limit_ix = set_compute_unit_limit(units=9_000)
+            compute_unit_limit_ix_bytes = bytes(compute_unit_limit_ix)
+
+            # Although this is redundant, we're keeping it.
+            heap_memory_size = 32 * 1024
+            request_heap_frame_ix = request_heap_frame(bytes_=heap_memory_size)
+            request_heap_frame_ix_bytes = bytes(request_heap_frame_ix)
 
             # Variable fee
             fee_ix_list = get_fee_instructions(fee=fee, balance=balance, owner=owner)
@@ -739,7 +753,9 @@ async def close_burn_ata_instructions(
 
             # Package both instructions into a single JSON object
             instructions = [
-                compute_unit_ix_bytes.hex(),  # Convert to hex for compatibility
+                compute_unit_price_ix_bytes.hex(),  # Convert to hex for compatibility
+                compute_unit_limit_ix_bytes.hex(),
+                request_heap_frame_ix_bytes.hex(),
                 burn_ix_bytes.hex(),   
                 close_ix_bytes.hex(),
             ]
@@ -752,7 +768,6 @@ async def close_burn_ata_instructions(
 
     return instructions
 
-
 async def recover_rent_client_from_transaction():
     from bot.config import appconfig
     keypair = Keypair.from_base58_string(appconfig.PRIVKEY)
@@ -764,7 +779,7 @@ async def recover_rent_client_from_transaction():
     }
     try:
         response = requests.post(
-                url="http://localhost:5001/api/associated_token_accounts/burn_and_close/instructions",
+                url="http://localhost:443/api/associated_token_accounts/burn_and_close/transaction",
                 json=body,
                 headers={"Content-Type": "application/json"}
             )
@@ -832,39 +847,50 @@ async def recover_rent_client_from_transaction():
         print("recover_rent_client_from_transaction-> Error: {}".format(e))
         return response
 
-async def recover_rent_client_from_instructions():
+async def recover_rent_client_from_instructions(go_local: bool = True):
     from bot.config import appconfig
     keypair = Keypair.from_base58_string(appconfig.PRIVKEY)
 
     body = {
         "owner": "4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
-        "token_mint": "DZp2GZjhgLTD2hyLowCZ8pu1evbA9wivV9JURts8LmNt",
+        "token_mint": "B7Bo6nKHLewLXm9YEyyfjPECVnPx74ga5YH4r9Tfpump",
         "decimals": 6,
         "balance": 0.002039,
         "fee": 0.045
     }
     try:
-        response = requests.post(
-                url="http://localhost:5001/api/associated_token_accounts/burn_and_close/instructions",
-                json=body,
-                headers={"Content-Type": "application/json"}
-            )
-        if response.status_code != 200:
-            print("recover_rent_client: Bad status code '{}' recevied".format(
-                    response.status_code
+        instructions = []
+        if not go_local:
+            response = requests.post(
+                    url="http://localhost:5001/api/associated_token_accounts/burn_and_close/instructions",
+                    json=body,
+                    headers={"Content-Type": "application/json"}
                 )
+            if response.status_code != 200:
+                print("recover_rent_client: Bad status code '{}' recevied".format(
+                        response.status_code
+                    )
+                )
+                return response
+
+            content = response.json()
+            txn_base64 = content["response"]
+
+            # Decode the Base64 string to bytes
+            decoded_bytes = base64.b64decode(txn_base64)
+
+            # Step 2: Deserialize JSON to get the list of instructions
+            instructions_data = json.loads(decoded_bytes.decode("utf-8"))
+
+        else:
+            instructions_data = await close_burn_ata_instructions(
+                owner=Pubkey.from_string(body["owner"]),
+                token_mint=Pubkey.from_string(body["token_mint"]),
+                decimals=body["decimals"],
+                balance=body["balance"],
+                fee=body["fee"]
             )
-            return response
-
-        content = response.json()
-        txn_base64 = content["response"]
-
-        # Decode the Base64 string to bytes
-        decoded_bytes = base64.b64decode(txn_base64)
-
-        # Step 2: Deserialize JSON to get the list of instructions
-        instructions_data = json.loads(decoded_bytes.decode("utf-8"))
-
+        
         # Step 3: Convert each hex string back to bytes
         instructions_bytes = [bytes.fromhex(instruction) for instruction in instructions_data]
 
@@ -881,6 +907,11 @@ async def recover_rent_client_from_instructions():
                 signing_keypairs=[keypair],
                 recent_blockhash=recent_blockhash
             )
+
+            # Simluating the transaction
+            simulation_result = await client.simulate_transaction(signed_tx)
+            if simulation_result.value.err:
+                print("Simulation error:", simulation_result.value.err)
 
             send_result = None
             tx_signature = await client.send_transaction(
@@ -901,7 +932,7 @@ async def recover_rent_client_from_instructions():
         return send_result
     except Exception as e:
         print("recover_rent_client_from_instructions-> Error: {}".format(e))
-        return response
+        
 
 # import asyncio
-# asyncio.run(recover_rent_client_from_instructions())
+# asyncio.run(recover_rent_client_from_instructions(go_local=False))
