@@ -35,6 +35,7 @@ from api.handlers.exceptions import EntityNotFoundException
 # from bot.app.api.config import appconfig
 # from bot.app.api.handlers.exceptions import EntityNotFoundException
 
+
 async def get_solana_balance(public_key: Pubkey) -> float:
     """
     Fetches the SOL balance of a given Solana wallet address.
@@ -43,16 +44,17 @@ async def get_solana_balance(public_key: Pubkey) -> float:
     :return: Balance in SOL as a float.
     """
     async with AsyncClient(appconfig.RPC_URL_HELIUS) as client:
-            try:
-                # Fetch the balance (in lamports)
-                balance_response = await client.get_balance(public_key)
-                # Balance is returned in lamports (1 SOL = 10^9 lamports)
-                lamports = balance_response.value
-                sol_balance = lamports / 1e9
-                return sol_balance
-            except Exception as e:
-                print(f"Error fetching balance: {e.error_msg}")
-                return 0.0
+        try:
+            # Fetch the balance (in lamports)
+            balance_response = await client.get_balance(public_key)
+            # Balance is returned in lamports (1 SOL = 10^9 lamports)
+            lamports = balance_response.value
+            sol_balance = lamports / 1e9
+            return sol_balance
+        except Exception as e:
+            print(f"Error fetching balance: {e.error_msg}")
+            return 0.0
+
 
 def get_solana_price() -> float:
     """
@@ -74,7 +76,7 @@ def get_solana_price() -> float:
             price_data = response.json()
             price = price_data["solana"]["usd"]
             break
-        except Exception as e:
+        except Exception:
             counter += 1
             print("get_solana_price Error: Failed to fetch Solana price. retriying {} of {}".format(
                 counter,
@@ -84,46 +86,47 @@ def get_solana_price() -> float:
 
     return price
 
-async def get_token_accounts_by_owner(wallet_address=str)->list[dict]:
+
+async def get_token_accounts_by_owner(wallet_address=str) -> list[dict]:
     value = []
-    async with AsyncClient(appconfig.RPC_URL_HELIUS) as client:
-        data = {
-            "jsonrpc": "2.0",
-            "id": "test",
-            "method": "getTokenAccountsByOwner",
-            "params": [
-                wallet_address,
-                {
-                    "programId": str(TOKEN_PROGRAM_ID)
-                },
-                {
-                    "encoding": "jsonParsed"
-                }
-            ]
-        }
-        try:
-            response = requests.post(
-                    url=appconfig.RPC_URL_HELIUS,
-                    json=data,
-                    headers={"Content-Type": "application/json"}
+    data = {
+        "jsonrpc": "2.0",
+        "id": "test",
+        "method": "getTokenAccountsByOwner",
+        "params": [
+            wallet_address,
+            {
+                "programId": str(TOKEN_PROGRAM_ID)
+            },
+            {
+                "encoding": "jsonParsed"
+            }
+        ]
+    }
+    try:
+        response = requests.post(
+                url=appconfig.RPC_URL_HELIUS,
+                json=data,
+                headers={"Content-Type": "application/json"}
+            )
+        if response.status_code != 200:
+            print("get_token_accounts_by_owner: Bad status code '{}' received for token {}".format(
+                    response.status_code,
+                    wallet_address
                 )
-            if response.status_code != 200:
-                print("get_token_accounts_by_owner: Bad status code '{}' received for token {}".format(
-                        response.status_code,
-                        wallet_address
-                    )
-                )
-                return value
-
-            content = response.json()
-            value = content["result"]["value"]
-
-            return value
-        except Exception as e:
-            print("get_token_accounts_by_owner-> Error: {}".format(e))
+            )
             return value
 
-def get_token_metadata(token_address: str)->dict:
+        content = response.json()
+        value = content["result"]["value"]
+
+        return value
+    except Exception as e:
+        print("get_token_accounts_by_owner-> Error: {}".format(e))
+        return value
+
+
+def get_token_metadata(token_address: str) -> dict:
     metadata = {}
 
     data = {
@@ -176,7 +179,7 @@ def get_token_metadata(token_address: str)->dict:
                 metadata["insufficient_data"] = True
             break
 
-        except Exception as e:
+        except Exception:
             counter += 1
             print("get_metadata: Error retrieving metadata for token {}. Retries {} of {}".format(
                     token_address,
@@ -188,7 +191,8 @@ def get_token_metadata(token_address: str)->dict:
 
     return metadata
 
-def get_current_ghostfunds_fees(burnable_accounts: int)->float:
+
+def get_current_ghostfunds_fees(burnable_accounts: int) -> float:
     """
     Return GhostFunds fee based on how many ata can be burned.
     :param burnable_accounts [int]: how many atas
@@ -291,6 +295,7 @@ async def count_associated_token_accounts(
 
     return total
 
+
 async def detect_dust_token_accounts(
     wallet_pubkey: Pubkey,
     do_balance_aproximation: bool = True,
@@ -307,117 +312,118 @@ async def detect_dust_token_accounts(
     account_samples = 5
     working_balance = 0
     # Refactor this: remove this line of code and test as client is not being used
-    async with AsyncClient(appconfig.RPC_URL_HELIUS) as client:
-        try:
-            total_items = 0
-            # TODO: implement token's black list (like USDC, etc)
-            token_blacklist = []
-            original_accounts = await get_token_accounts_by_owner(wallet_address=str(wallet_pubkey))
-            accounts = [
-                account for account in original_accounts
-                if account["account"]["data"]["parsed"]["info"]["mint"] not in token_blacklist
-            ]
+    try:
+        total_items = 0
+        # TODO: implement token's black list (like USDC, etc)
+        token_blacklist = []
+        original_accounts = await get_token_accounts_by_owner(wallet_address=str(wallet_pubkey))
+        accounts = [
+            account for account in original_accounts
+            if account["account"]["data"]["parsed"]["info"]["mint"] not in token_blacklist
+        ]
 
-            if not accounts:
-                return [], page, total_items
+        if not accounts:
+            return [], page, total_items
 
-            # Fetch the current Solana price
-            sol_price = get_solana_price()
-            if sol_price == 0:
-                return [], page, total_items
+        # Fetch the current Solana price
+        sol_price = get_solana_price()
+        if sol_price == 0:
+            return [], page, total_items
 
-            if do_balance_aproximation:
-                account_sample_list = accounts
-                if len(accounts) > account_samples:
-                    my_list = list(range(len(accounts)))
-                    # Generate X random positions
-                    random_positions = random.sample(range(len(my_list)), account_samples)
-                    # Get the 5 random values from the list
-                    account_sample_list = [my_list[pos] for pos in random_positions]
+        if do_balance_aproximation:
+            account_sample_list = accounts
+            if len(accounts) > account_samples:
+                my_list = list(range(len(accounts)))
+                # Generate X random positions
+                random_positions = random.sample(range(len(my_list)), account_samples)
+                # Get the 5 random values from the list
+                account_sample_list = [my_list[pos] for pos in random_positions]
 
-                sum_balance = 0
-                for index in account_sample_list:
-                    associated_tokan_account = accounts[index]["pubkey"]
-                    sum_balance += await get_solana_balance(public_key=Pubkey.from_string(associated_tokan_account))
+            sum_balance = 0
+            for index in account_sample_list:
+                associated_tokan_account = accounts[index]["pubkey"]
+                sum_balance += await get_solana_balance(public_key=Pubkey.from_string(associated_tokan_account))
 
-                working_balance = sum_balance / len(account_sample_list)
+            working_balance = sum_balance / len(account_sample_list)
 
-            counter = 0
-            account_output = []
-            # Sort ATAs by mint address (this will help with the pagination)
-            sorted_accounts = sorted(
-                accounts,
-                key=lambda x: x["account"]["data"]["parsed"]["info"]["mint"]
+        counter = 0
+        account_output = []
+        # Sort ATAs by mint address (this will help with the pagination)
+        sorted_accounts = sorted(
+            accounts,
+            key=lambda x: x["account"]["data"]["parsed"]["info"]["mint"]
+        )
+
+        # Pagination
+        total_items = len(sorted_accounts)
+        # We can't expect to have more items in a page than what we have.
+        # Ex: can't have 50 page items on 10 items in total
+        total_pages = math.ceil(total_items / items_per_page) if items_per_page < total_items else total_items
+        # can't work with pages greater than the total pages we're dealing with
+        page = total_pages if page > total_pages else page
+
+        start_index = (page - 1) * items_per_page
+        end_index = start_index + items_per_page if start_index + items_per_page < total_items else total_items
+
+        # Paginate the list
+        sorted_accounts = sorted_accounts[start_index:end_index]
+
+        for account in sorted_accounts:
+            counter += 1
+
+            mint = account["account"]["data"]["parsed"]["info"]["mint"]
+            owner = account["account"]["data"]["parsed"]["info"]["owner"]
+            token_amount = account["account"]["data"]["parsed"]["info"]["tokenAmount"]["uiAmount"]
+            decimals = account["account"]["data"]["parsed"]["info"]["tokenAmount"]["decimals"]
+            associated_token_account = account["pubkey"]
+
+            metadata = get_token_metadata(token_address=mint)
+
+            token_price = metadata["price_info"]["price_per_token"]
+            token_value = token_price * token_amount
+
+            uri = metadata["uri"]
+            cdn_uri = metadata["cdn_uri"]
+            mime = metadata["mime"]
+            description = metadata["description"] if "description" in metadata else ""
+            name = metadata["name"].strip()
+            symbol = metadata["symbol"].strip()
+            authority = metadata["authority"]
+            supply = metadata["supply"]
+            token_program = metadata["token_program"]
+            insufficient_data = metadata["insufficient_data"]  # Non listed tokens returns a zero price
+
+            account_output.append(
+                {
+                    "token_mint": mint,
+                    "associated_token_account": associated_token_account,
+                    "owner": owner,
+                    "token_amount": token_amount,
+                    "token_price": token_price,
+                    "token_value": token_value,
+                    "decimals": decimals,
+                    "sol_balance": working_balance,
+                    "sol_balance_usd": working_balance * sol_price,
+                    "is_dust": token_value < min_token_value,
+                    "uri": uri,
+                    "cdn_uri": cdn_uri,
+                    "mime": mime,
+                    "description": description,
+                    "name": name,
+                    "symbol": symbol,
+                    "authority": authority,
+                    "supply": supply,
+                    "token_program": token_program,
+                    "insufficient_data": insufficient_data,
+                }
             )
 
-            # Pagination
-            total_items = len(sorted_accounts)
-            # We can't expect to have more items in a page than what we have. Ex: can't have 50 page items on 10 items in total
-            total_pages = math.ceil(total_items / items_per_page) if items_per_page < total_items else total_items
-            # can't work with pages greater than the total pages we're dealing with
-            page = total_pages if page > total_pages else page
+        return account_output, page, total_items
 
-            start_index = (page - 1) * items_per_page
-            end_index = start_index + items_per_page if start_index + items_per_page < total_items else total_items
+    except Exception as e:
+        print(f"Error fetching associated token accounts for account '{str(wallet_pubkey)}' balance: {e}")
+        return account_output, page, total_items
 
-            # Paginate the list
-            sorted_accounts = sorted_accounts[start_index:end_index]
-
-            for account in sorted_accounts:
-                counter +=1
-
-                mint = account["account"]["data"]["parsed"]["info"]["mint"]
-                owner = account["account"]["data"]["parsed"]["info"]["owner"]
-                token_amount = account["account"]["data"]["parsed"]["info"]["tokenAmount"]["uiAmount"]
-                decimals = account["account"]["data"]["parsed"]["info"]["tokenAmount"]["decimals"]
-                associated_token_account = account["pubkey"]
-
-                metadata = get_token_metadata(token_address=mint)
-
-                token_price = metadata["price_info"]["price_per_token"]
-                token_value = token_price * token_amount
-
-                uri = metadata["uri"]
-                cdn_uri = metadata["cdn_uri"]
-                mime = metadata["mime"]
-                description = metadata["description"] if "description" in metadata else ""
-                name = metadata["name"].strip()
-                symbol = metadata["symbol"].strip()
-                authority = metadata["authority"]
-                supply =  metadata["supply"]
-                token_program = metadata["token_program"]
-                insufficient_data = metadata["insufficient_data"]  # Non listed tokens returns a zero price
-
-                account_output.append(
-                    {
-                        "token_mint": mint,
-                        "associated_token_account": associated_token_account,
-                        "owner": owner,
-                        "token_amount": token_amount,
-                        "token_price": token_price,
-                        "token_value": token_value,
-                        "decimals": decimals,
-                        "sol_balance": working_balance,
-                        "sol_balance_usd": working_balance * sol_price,
-                        "is_dust": token_value < min_token_value,
-                        "uri": uri,
-                        "cdn_uri": cdn_uri,
-                        "mime": mime,
-                        "description": description,
-                        "name": name,
-                        "symbol": symbol,
-                        "authority": authority,
-                        "supply": supply,
-                        "token_program": token_program,
-                        "insufficient_data": insufficient_data,
-                    }
-                )
-
-            return account_output, page, total_items
-
-        except Exception as e:
-            print(f"Error fetching associated token accounts for account '{str(wallet_pubkey)}' balance: {e}")
-            return account_output, page, total_items
 
 async def burn_and_close_associated_token_account(
     associated_token_account: Pubkey,
@@ -447,7 +453,7 @@ async def burn_and_close_associated_token_account(
             # BURN
             data = account_info.data
             if len(data) != 165:
-                print("burn_associated_token_account-> Error: Invalid data length for SPL associated account {} for token {}".format(
+                print("burn_associated_token_account-> Error: Invalid data length for ATA {} for token {}".format(
                     str(associated_token_account),
                     str(token_mint)
                 ))
@@ -463,7 +469,7 @@ async def burn_and_close_associated_token_account(
                 delegated_amount,
                 close_authority_option,
                 close_authority
-            ) = struct.unpack("<32s32sQ4s32sB4sQ8s4s32s",data)
+            ) = struct.unpack("<32s32sQ4s32sB4sQ8s4s32s", data)
             owner = owner
             amount = amount_lamports
 
@@ -566,7 +572,7 @@ async def close_ata_transaction(
             # BURN
             data = account_info.data
             if len(data) != 165:
-                print("burn_associated_token_account-> Error: Invalid data length for SPL associated account {} for token {}".format(
+                print("close_ata_transaction-> Error: Invalid data length for ATA {} for token {}".format(
                     str(associated_token_account),
                     str(token_mint)
                 ))
@@ -582,8 +588,8 @@ async def close_ata_transaction(
                 delegated_amount,
                 close_authority_option,
                 close_authority
-            ) = struct.unpack("<32s32sQ4s32sB4sQ8s4s32s",data)
-            #owner = owner
+            ) = struct.unpack("<32s32sQ4s32sB4sQ8s4s32s", data)
+
             amount = amount_lamports
 
             # Construct the burn instruction
@@ -619,7 +625,6 @@ async def close_ata_transaction(
             if encode_base64:
                 txn = base64.b64encode(txn).decode('ascii')
 
-
         except EntityNotFoundException as enfe:
             raise enfe
         except Exception as e:
@@ -632,7 +637,7 @@ def get_fee_instructions(
     fee: float,
     balance: float,
     owner: Pubkey
-)->list[Instruction]:
+) -> list[Instruction]:
     # Fix fee
     lamports_to_charge = int(appconfig.GHOSTFUNDS_FIX_FEES * 10**9)  # Convert SOL to lamports
     fix_fees_params = TransferParams(
@@ -650,6 +655,7 @@ def get_fee_instructions(
     )
     variable_fees_ix = transfer(params=variable_fees_params)
     return [fix_fees_ix, variable_fees_ix]
+
 
 async def close_burn_ata_instructions(
     owner: Pubkey,
@@ -690,7 +696,7 @@ async def close_burn_ata_instructions(
             # BURN
             data = account_info.data
             if len(data) != 165:
-                print("burn_associated_token_account-> Error: Invalid data length for SPL associated account {} for token {}".format(
+                print("close_burn_ata_instructions-> Error: Invalid data length for ATA {} for token {}".format(
                     str(associated_token_account),
                     str(token_mint)
                 ))
@@ -706,8 +712,8 @@ async def close_burn_ata_instructions(
                 delegated_amount,
                 close_authority_option,
                 close_authority
-            ) = struct.unpack("<32s32sQ4s32sB4sQ8s4s32s",data)
-            #owner = owner
+            ) = struct.unpack("<32s32sQ4s32sB4sQ8s4s32s", data)
+
             amount = amount_lamports
 
             # Construct the burn instruction
@@ -767,6 +773,7 @@ async def close_burn_ata_instructions(
             print("request_close_ata_instruction Error: {}".format(e))
 
     return instructions
+
 
 async def recover_rent_client_from_transaction():
     from bot.config import appconfig
@@ -846,6 +853,7 @@ async def recover_rent_client_from_transaction():
     except Exception as e:
         print("recover_rent_client_from_transaction-> Error: {}".format(e))
         return response
+
 
 async def recover_rent_client_from_instructions(go_local: bool = True):
     from bot.config import appconfig
