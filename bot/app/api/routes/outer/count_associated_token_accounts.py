@@ -11,6 +11,7 @@ router = APIRouter()
 def validate_account_address(account_address: AccountAddressType) -> str:
     return account_address
 
+
 @router.get(
     path="/associated_token_accounts/count",
     response_model=CountAssociatedTokenAccounts,
@@ -31,4 +32,3 @@ async def associated_token_accounts_count(
         fee=data["fee"]
     )
     return response
-

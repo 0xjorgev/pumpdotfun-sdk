@@ -14,9 +14,21 @@ app = FastAPI(
 
 # Including routes
 app.include_router(router=associated_token_accounts_route, prefix="/api", tags=["Associated Token Accounts"])
-app.include_router(router=count_associated_token_accounts_route, prefix="/api", tags=["Count Associated Token Accounts"])
-app.include_router(router=request_ata_transaction_route, prefix="/api", tags=["Request Associated Token Account Transaction"])
-app.include_router(router=request_ata_instructions_route, prefix="/api", tags=["Request Associated Token Account Instructions"])
+app.include_router(
+    router=count_associated_token_accounts_route,
+    prefix="/api",
+    tags=["Count Associated Token Accounts"]
+)
+app.include_router(
+    router=request_ata_transaction_route,
+    prefix="/api",
+    tags=["Request Associated Token Account Transaction"]
+)
+app.include_router(
+    router=request_ata_instructions_route,
+    prefix="/api",
+    tags=["Request Associated Token Account Instructions"]
+)
 
 # Register the exception handler without decorator
 app.add_exception_handler(EntityNotFoundException, entity_not_found_exception_handler)

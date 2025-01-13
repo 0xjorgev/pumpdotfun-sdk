@@ -7,6 +7,7 @@ from api.models.outer_models import Quote, RequestTransaction
 from api.libs.utils import close_ata_transaction
 router = APIRouter()
 
+
 @router.post(
     path="/associated_token_accounts/burn_and_close/transaction",
     response_model=Quote,
@@ -16,7 +17,6 @@ router = APIRouter()
 async def request_close_ata_transaction(
     body: RequestTransaction,
 ):
-    txn = None
     try:
         owner = body.owner
         token = body.token_mint

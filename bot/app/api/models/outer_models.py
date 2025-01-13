@@ -14,6 +14,7 @@ AccountAddressType = Annotated[
     )
 ]
 
+
 class CountAssociatedTokenAccounts(BaseModel):
     total_accounts: int = Field(
         0, description='Total number of associated accounts.'
@@ -109,15 +110,16 @@ class AssociatedTokenAccounts(BaseModel):
     #         raise ValidationError("Both 'page' and 'items' must be greater than 0.")
     #     return values
 
+
 class RequestTransaction(BaseModel):
-    owner: constr(pattern=r'^[1-9A-HJ-NP-Za-km-z]{44}$') = (
+    owner: constr(pattern=r'^[1-9A-HJ-NP-Za-km-z]{44}$') = (                # noqa: F722
         Field(
             ...,
             description='Owner account address.',
             example='7dLn2WU6vX6Yk1BeMoAAumx7grc79TdcUgrpqvA9CvFi',
         )
     )
-    token_mint: constr(pattern=r'^[1-9A-HJ-NP-Za-km-z]{32,50}$') = Field(
+    token_mint: constr(pattern=r'^[1-9A-HJ-NP-Za-km-z]{32,50}$') = Field(   # noqa: F722
         ...,
         description='The mint address of the token. Supports standard Solana mint format and extended formats.',
         example='bpMAcs5cEDu33kbCgTcBu7HtuZwsoNwsMH839jupump',
@@ -132,10 +134,12 @@ class RequestTransaction(BaseModel):
         ..., description='GhostFunds fee.'
     )
 
+
 class Quote(BaseModel):
     quote: Optional[str] = Field(
         None, description='A base64-encoded string representing the quote.'
     )
+
 
 class Instructions(BaseModel):
     response: Optional[str] = Field(

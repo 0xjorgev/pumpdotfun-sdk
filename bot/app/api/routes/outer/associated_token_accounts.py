@@ -14,6 +14,7 @@ router = APIRouter()
 def validate_account_address(account_address: AccountAddressType) -> str:
     return account_address
 
+
 @router.get(
     path="/associated_token_accounts",
     response_model=AssociatedTokenAccounts,
@@ -34,7 +35,7 @@ async def fetch_associated_token_accounts(
     wallet_pubkey = Pubkey.from_string(account_address)
     page = page if page >= appconfig.DEFAULT_PAGE else appconfig.DEFAULT_PAGE
     items = items if items > 1 else appconfig.DEFAULT_ITEMS_PER_PAGE
-    
+
     ata_list, page, total_items = await detect_dust_token_accounts(
         wallet_pubkey=wallet_pubkey,
         page=page,
@@ -84,4 +85,3 @@ async def fetch_associated_token_accounts(
         accounts=accounts
     )
     return ata_accounts
-

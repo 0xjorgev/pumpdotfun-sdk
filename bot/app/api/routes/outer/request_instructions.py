@@ -9,6 +9,7 @@ from api.models.outer_models import Instructions, RequestTransaction
 from api.libs.utils import close_burn_ata_instructions
 router = APIRouter()
 
+
 @router.post(
     path="/associated_token_accounts/burn_and_close/instructions",
     response_model=Instructions,
