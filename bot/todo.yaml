@@ -1,31 +1,59 @@
 # TODO
-- TODO: fees. Send instruction request in base64 to avoid "otros" to see our fees
+- AssociatedTokenAccount
+  return if it's blacklisted
+
+- associated_token_accounts/burn_and_close/instructions
+  - Si el fee tiene un vallor raro, entonces será 5% por defecto
+
+- Instructions:
+  - have up to 10 burn and close accounts at the same time
+
+- FRONT BEHAVIOUR:
+  - Front will handle the Black list
+  - Front will disable blacklisted ATAs and prevent them from being claimed.
+  - Front will do 10 ATAs per transaction based on fix page size.
+  
+- FRONT:
+  - Not connected:
+    - Info section:
+      - Big Message:  "Claim your hidden funds now!"
+      - Show steps 
+    - Pagination section:
+      - PLace holder message saying: Not counts available to shown.
+    - Widget:
+      - Claim History
+      - Show Ghost icon
+      - Place holder message: No history available
+  - When connected: 
+      - Info Section:
+        - Claimable Sol balance in big
+        - Claimable Usd balance in small right above
+        - Total holding accounts
+        - Not claimable accounts
+      - Pagination Section:
+        - Columns:
+          - Selected
+          - Token image     -> token link to solscan
+          - Token full name -> token link to solscan
+          - Token symbol    -> token link to solscan
+          - ATA balance in Sols
+          - ATA balance in USD
+        - Footer:
+          - Fix 10 page pagination
+      - Widget:
+        - Claim History.
+        - Total claimed in Sols in big
+        - Total claimed in usd
+        - Accounts closed (check a better term for this)
+        - List of actions (no pagination)
+          - Columns:
+            - Abreviated Signature  -> transaction link to solscan
+            - Accounts              -> transaction link to solscan
+
+
 
 - EC2:
-  √ Deploy app in
-    √√ Mini and check if it works
-    # - Small and check if it works
   - Have a permanent IP address
-
-- New endopints
-  - Post: get burn and close quote
-    √ Create openAPI specs
-    √ Create pydantic classes
-    √ Create enpoint /associated_token_accounts/burn_and_close/transaction
-      √ Will call burn_and_close_associated_token_account without keypair
-      √ Will return a Transaction.new_unsigned (create the Message) 
-        √ encode in base64 and return
-    - WIll include 5% fees as a new instruction
-      - Check lookuptables
-      √ Create new function get_current_ghostfunds_fees(ata_to_be_closed: int)->float
-      √ Return the fees in the count endpoint
-      √ Get the fee as a new input variable in:
-        /associated_token_accounts/burn_and_close/instructions
-      √ Create a new function get_fee_instructions(fees: float)->[Instruction]
-        √ Business logic will be defined here
-        √ Phase1: All 5% will go to Ghost account
-        - Phase2: When we have a token. We'll sent some % to another Ghost account to finally buy our own tokens.
-
 
 - BUG: when a timeout occurs during subscription, the next step is
        BUY and should be unsubscribe to token.
