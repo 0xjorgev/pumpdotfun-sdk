@@ -24,13 +24,13 @@ def validate_account_address(account_address: AccountAddressType) -> str:
 async def fetch_associated_token_accounts(
     account_address: str = Depends(validate_account_address),
     page: PositiveInt = Query(
-            default=appconfig.DEFAULT_PAGE,
-            description="The current page to retrieve (must be greater than 0)."
-        ),
+        default=appconfig.DEFAULT_PAGE,
+        description="The current page to retrieve (must be greater than 0)."
+    ),
     items: PositiveInt = Query(
-            default=appconfig.DEFAULT_ITEMS_PER_PAGE,
-            description="The number of items per page (must be greater than 0)."
-        ),
+        default=appconfig.DEFAULT_ITEMS_PER_PAGE,
+        description="The number of items per page (must be greater than 0)."
+    ),
 ):
     wallet_pubkey = Pubkey.from_string(account_address)
     page = page if page >= appconfig.DEFAULT_PAGE else appconfig.DEFAULT_PAGE

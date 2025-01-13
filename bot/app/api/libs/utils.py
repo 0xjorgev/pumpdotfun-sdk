@@ -105,16 +105,15 @@ async def get_token_accounts_by_owner(wallet_address=str) -> list[dict]:
     }
     try:
         response = requests.post(
-                url=appconfig.RPC_URL_HELIUS,
-                json=data,
-                headers={"Content-Type": "application/json"}
-            )
+            url=appconfig.RPC_URL_HELIUS,
+            json=data,
+            headers={"Content-Type": "application/json"}
+        )
         if response.status_code != 200:
             print("get_token_accounts_by_owner: Bad status code '{}' received for token {}".format(
-                    response.status_code,
-                    wallet_address
-                )
-            )
+                response.status_code,
+                wallet_address
+            ))
             return value
 
         content = response.json()
@@ -145,19 +144,18 @@ def get_token_metadata(token_address: str) -> dict:
 
         try:
             response = requests.post(
-                    url=appconfig.RPC_URL_HELIUS,
-                    json=data,
-                    headers={"Content-Type": "application/json"}
-                )
+                url=appconfig.RPC_URL_HELIUS,
+                json=data,
+                headers={"Content-Type": "application/json"}
+            )
             if response.status_code != 200:
                 counter += 1
                 print("get_metadata: Bad status code '{}' recevied for token {}. Retries {} of {}".format(
-                        response.status_code,
-                        token_address,
-                        counter,
-                        retries
-                    )
-                )
+                    response.status_code,
+                    token_address,
+                    counter,
+                    retries
+                ))
                 time.sleep(counter)
                 continue
 
@@ -182,11 +180,10 @@ def get_token_metadata(token_address: str) -> dict:
         except Exception:
             counter += 1
             print("get_metadata: Error retrieving metadata for token {}. Retries {} of {}".format(
-                    token_address,
-                    counter,
-                    retries
-                )
-            )
+                token_address,
+                counter,
+                retries
+            ))
             time.sleep(counter)
 
     return metadata
@@ -786,15 +783,14 @@ async def recover_rent_client_from_transaction():
     }
     try:
         response = requests.post(
-                url="http://localhost:443/api/associated_token_accounts/burn_and_close/transaction",
-                json=body,
-                headers={"Content-Type": "application/json"}
-            )
+            url="http://localhost:443/api/associated_token_accounts/burn_and_close/transaction",
+            json=body,
+            headers={"Content-Type": "application/json"}
+        )
         if response.status_code != 200:
             print("recover_rent_client: Bad status code '{}' recevied".format(
-                    response.status_code
-                )
-            )
+                response.status_code
+            ))
             return response
 
         content = response.json()
@@ -870,15 +866,14 @@ async def recover_rent_client_from_instructions(go_local: bool = True):
         instructions = []
         if not go_local:
             response = requests.post(
-                    url="http://3.255.102.199:443/api/associated_token_accounts/burn_and_close/instructions",
-                    json=body,
-                    headers={"Content-Type": "application/json"}
-                )
+                url="http://3.255.102.199:443/api/associated_token_accounts/burn_and_close/instructions",
+                json=body,
+                headers={"Content-Type": "application/json"}
+            )
             if response.status_code != 200:
                 print("recover_rent_client: Bad status code '{}' recevied".format(
-                        response.status_code
-                    )
-                )
+                    response.status_code
+                ))
                 return response
 
             content = response.json()

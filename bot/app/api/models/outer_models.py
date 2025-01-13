@@ -28,10 +28,10 @@ class CountAssociatedTokenAccounts(BaseModel):
     rent_balance: float = Field(
         0, description='Total rent balance for the accounts.'
     )
-    rent_balance_usd:  float = Field(
+    rent_balance_usd: float = Field(
         0, description='Total rent balance converted to USD.'
     )
-    fee:  float = Field(
+    fee: float = Field(
         0, description='GhostFunds fee.'
     )
 
@@ -112,14 +112,14 @@ class AssociatedTokenAccounts(BaseModel):
 
 
 class RequestTransaction(BaseModel):
-    owner: constr(pattern=r'^[1-9A-HJ-NP-Za-km-z]{44}$') = (                # noqa: F722
+    owner: constr(pattern=r'^[1-9A-HJ-NP-Za-km-z]{44}$') = (
         Field(
             ...,
             description='Owner account address.',
             example='7dLn2WU6vX6Yk1BeMoAAumx7grc79TdcUgrpqvA9CvFi',
         )
     )
-    token_mint: constr(pattern=r'^[1-9A-HJ-NP-Za-km-z]{32,50}$') = Field(   # noqa: F722
+    token_mint: constr(pattern=r'^[1-9A-HJ-NP-Za-km-z]{32,50}$') = Field(
         ...,
         description='The mint address of the token. Supports standard Solana mint format and extended formats.',
         example='bpMAcs5cEDu33kbCgTcBu7HtuZwsoNwsMH839jupump',

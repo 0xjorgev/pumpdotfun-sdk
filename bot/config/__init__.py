@@ -23,8 +23,8 @@ class AuthConfig:
     SLIPPAGE = os.environ.get("SLIPPAGE", 40)
     FEES = float(os.environ.get("FEES", 0.0015))
     FEES_INCREASMENT = 0.000805
-    FEES_TIMEDELTA_IN_SECONDS = 1.0     # Tolerance to delays between buying and entering in 
-                                        # the trade because of lower fees
+    FEES_TIMEDELTA_IN_SECONDS = 1.0     # Tolerance to delays between buying and entering in
+                                        # the trade because of lower fees                      # noqa: E116
     FEES_BPS = float(os.environ.get("FEES", 0.0005)) * 10000   # Fees in BPS
     PRIVKEY = os.environ.get(
         "PRIVKEY",
@@ -52,7 +52,7 @@ class AuthConfig:
             "TRADING_CRITERIA_CONSECUTIVES_NON_RELEVANT_TRADES_TOLERANCE",
             3
         )
-    ) 
+    )
     TRADING_TOKENS_AT_THE_SAME_TIME = 1
     TRADING_EXPECTED_GAIN_IN_PERCENTAGE = 0.5
     TRADING_RETRIES = 3
@@ -63,7 +63,7 @@ class AuthConfig:
     SCANNER_TRADING_AMOUNT = 1.00           # Sols the sniper will trade
     SCANNER_WORKING_TIME = 600               # Seconds the scanner will be working
     SCANNER_PUMPDONTFUN_INITIAL_FUND = 30   # Sols placed by pump.fun to launch a token
-    #DB
+    # DB
     REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
     REDIS_PORT = os.environ.get("REDIS_PORT", "6379")
 
