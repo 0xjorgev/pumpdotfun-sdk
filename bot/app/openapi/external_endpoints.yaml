@@ -103,7 +103,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/RequestTransaction'
+              $ref: '#/components/schemas/GetTransaction'
       responses:
         '200':
           description: Burn and close quote successfully retrieved.
@@ -132,7 +132,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/RequestTransaction'
+              $ref: '#/components/schemas/GetTransaction'
       responses:
         '200':
           description: INstrucions successfully retrieved.
@@ -143,6 +143,16 @@ paths:
               example:
                 response: "VGhpcyBpcyBhIHNhbXBsZSBxdW90ZSBmb3IgYnVybiBhbmQgY2xvc2U="
                 
+        '400':
+          description: "Too many instructions."
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: "Too many instructions."
         '404':
           description: Account not found.
           content:
@@ -256,7 +266,7 @@ components:
           type: boolean
           description: Whether there is insufficient data for this token.
 
-    RequestTransaction:
+    GetTransaction:
       type: object
       properties:
         owner:

@@ -5,7 +5,7 @@ from fastapi import APIRouter
 from solders.pubkey import Pubkey
 
 from api.config import appconfig
-from api.handlers.exceptions import EntityNotFoundException
+from api.handlers.exceptions import EntityNotFoundException, TooManyInstructionsException
 from api.libs.utils import close_burn_ata_instructions
 from api.models.outer_models import Instructions, RequestTransaction
 
@@ -30,6 +30,9 @@ async def request_close_ata_instructions(
                 response=None
             )
             return instructions
+
+        if len(tokens) > appconfig.BACKEND_MAX_INSTRUCTIONS:
+            raise TooManyInstructionsException(detail="Too many instructions")
 
         tokens = [token.model_dump() for token in tokens]
 
@@ -63,4 +66,8 @@ async def request_close_ata_instructions(
     except EntityNotFoundException as e:
         raise EntityNotFoundException(
             detail=e.detail
+        )
+    except TooManyInstructionsException as te:
+        raise TooManyInstructionsException(
+            detail=te.detail
         )

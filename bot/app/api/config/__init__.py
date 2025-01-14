@@ -31,6 +31,7 @@ class AuthConfig:
     }
     GHOSTFUNDS_FIX_FEES_RECEIVER = "GhoStvfwEx5FYEX7jMEpsu6R13xJFJdTLs4BxEpB9qxQ"
     GHOSTFUNDS_VARIABLE_FEES_RECEIVER = "Ghost5UYkXcgLdja6Uhyac3gTnuefrx7TuSFat5JUVdW"
+    BACKEND_MAX_INSTRUCTIONS = 10
 
     RETRIES = 5
     RPC_URL_HELIUS = "https://mainnet.helius-rpc.com/?api-key=f32b640c-6877-43e7-924b-2035b448d17e"
