@@ -4,9 +4,11 @@ import json
 from fastapi import APIRouter
 from solders.pubkey import Pubkey
 
+from api.config import appconfig
 from api.handlers.exceptions import EntityNotFoundException
-from api.models.outer_models import Instructions, RequestTransaction
 from api.libs.utils import close_burn_ata_instructions
+from api.models.outer_models import Instructions, RequestTransaction
+
 router = APIRouter()
 
 
@@ -25,6 +27,17 @@ async def request_close_ata_instructions(
         decimals = body.decimals
         balance = body.balance
         fee = body.fee
+
+        last_fee = list(appconfig.GHOSTFUNDS_FEES_PERCENTAGES.values())[-1]
+        if fee not in appconfig.GHOSTFUNDS_FEES_PERCENTAGES.values() or fee < last_fee:
+            # Assigning unknown or lower fee
+            print("Warning: unknown fee of {} received from account {} on token {}. Adjusting fee to be {}".format(
+                fee,
+                owner,
+                token,
+                appconfig.GHOSTFUNDS_FEES_PERCENTAGES[1]
+            ))
+            fee = appconfig.GHOSTFUNDS_FEES_PERCENTAGES[1]
 
         instructions = await close_burn_ata_instructions(
             owner=Pubkey.from_string(owner),
