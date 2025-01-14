@@ -1,18 +1,15 @@
 # TODO
-- AssociatedTokenAccount
-  return if it's blacklisted
+√ associated_token_accounts/burn_and_close/instructions
+  √ Si el fee tiene un vallor raro, entonces será 5% por defecto
 
-- associated_token_accounts/burn_and_close/instructions
-  - Si el fee tiene un vallor raro, entonces será 5% por defecto
-
-- Instructions:
-  - have up to 10 burn and close accounts at the same time
+√ Instructions:
+  √ have up to 10 burn and close accounts at the same time
 
 - FRONT BEHAVIOUR:
   - Front will handle the Black list
   - Front will disable blacklisted ATAs and prevent them from being claimed.
   - Front will do 10 ATAs per transaction based on fix page size.
-  
+
 - FRONT:
   - Not connected:
     - Info section:

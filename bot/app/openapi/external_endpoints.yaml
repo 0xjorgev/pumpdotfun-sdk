@@ -103,7 +103,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GetTransaction'
+              $ref: '#/components/schemas/RequestTransaction'
       responses:
         '200':
           description: Burn and close quote successfully retrieved.
@@ -132,7 +132,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GetTransaction'
+              $ref: '#/components/schemas/RequestTransaction'
       responses:
         '200':
           description: INstrucions successfully retrieved.
@@ -256,14 +256,27 @@ components:
           type: boolean
           description: Whether there is insufficient data for this token.
 
-    GetTransaction:
+    RequestTransaction:
       type: object
       properties:
-        associated_token_account:
+        owner:
           type: string
           description: The associated token account address.
           pattern: ^[1-9A-HJ-NP-Za-km-z]{44}$
           example: "7dLn2WU6vX6Yk1BeMoAAumx7grc79TdcUgrpqvA9CvFi"
+        fee:
+          type: number
+          format: float
+          description: Fees to be applied based on burnable accounts
+          example: 0.05
+        tokens:
+          type: array
+          items:
+            $ref: '#/components/schemas/RequestTransactionToken'
+
+    RequestTransactionToken:
+      type: object
+      properties:  
         token_mint:
           type: string
           description: The mint address of the token.
@@ -278,11 +291,6 @@ components:
           format: float
           description: ATA Sol balance
           example: 0.00203928
-        fee:
-          type: number
-          format: float
-          description: Fees to be applied based on burnable accounts
-          example: 0.05
     
     Quote:
       type: object

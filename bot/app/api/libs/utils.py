@@ -12,7 +12,7 @@ from solana.rpc.types import TxOpts
 from solana.rpc.commitment import Confirmed
 
 from solders.compute_budget import (
-    request_heap_frame,
+    # request_heap_frame,
     set_compute_unit_limit,
     set_compute_unit_price
 )
@@ -767,9 +767,9 @@ async def close_burn_ata_instructions(
             compute_unit_limit_ix_bytes = bytes(compute_unit_limit_ix)
 
             # Although this is redundant, we're keeping it.
-            heap_memory_size = 64 * 1024
-            request_heap_frame_ix = request_heap_frame(bytes_=heap_memory_size)
-            request_heap_frame_ix_bytes = bytes(request_heap_frame_ix)
+            # heap_memory_size = 64 * 1024
+            # request_heap_frame_ix = request_heap_frame(bytes_=heap_memory_size)
+            # request_heap_frame_ix_bytes = bytes(request_heap_frame_ix)
 
             # Variable fee
             # Summing all ATAs balances to calculate variable fee
@@ -884,59 +884,14 @@ async def recover_rent_client_from_instructions(go_local: bool = True):
 
     body = {
         "owner": "4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
+        "fee": 0.045,
         "tokens": [
             {
-                "token_mint": "A8ZWXHAG94pse8yYBgjnsCMc6GKhcM83CJfvTB6bpump",
+                "token_mint": "G1jFTkA5XCw8b9Sut9PW6cUzaoTfhmW58fRXqa78pump",
                 "decimals": 6,
                 "balance": 0.002039
-            },
-            {
-                "token_mint": "HkRrx8bdhGgoQLShM2YTzSHAYDdp6pLNXQE69m7Lpump",
-                "decimals": 6,
-                "balance": 0.002039
-            },
-            {
-                "token_mint": "3DnBVVMB41h1iR37kV6tbGTuaQnv7xTgjA2QUog7pump",
-                "decimals": 6,
-                "balance": 0.002039
-            },
-            {
-                "token_mint": "4QpUXvGqNHJiBYWeoNR3Z9hACrVvwTHwYzPwFkDepump",
-                "decimals": 6,
-                "balance": 0.002039
-            },
-            {
-                "token_mint": "7UXAqkx3rtUDHepzEVzBdBCempwAj31SQjx3TgKMpump",
-                "decimals": 6,
-                "balance": 0.002039
-            },
-            {
-                "token_mint": "2KTN3QZPpBDNvaFzWGNZ58E3SiyafDGo4K4YDnN1pump",
-                "decimals": 6,
-                "balance": 0.002039
-            },
-            {
-                "token_mint": "8phGbDQfP5E7cv7bZJDJr1KkxnZaPJa4RzbNVZhTpump",
-                "decimals": 6,
-                "balance": 0.002039
-            },
-            {
-                "token_mint": "HBSJQcuUgPESsznJ7iMVKxYecLU6cQuKPGgoam6cpump",
-                "decimals": 6,
-                "balance": 0.002039
-            },
-            {
-                "token_mint": "55iqkACwZ3ceGqUXnaPUhA4RTKv9XUFZAKy3gPM2pump",
-                "decimals": 6,
-                "balance": 0.002039
-            },
-            {
-                "token_mint": "M3M3pSFptfpZYnWNUgAbyWzKKgPo5d1eWmX6tbiSF2K",
-                "decimals": 9,
-                "balance": 0.002039
-            },
+            }
         ],
-        "fee": 0.045
     }
     try:
         instructions = []
@@ -1012,4 +967,4 @@ async def recover_rent_client_from_instructions(go_local: bool = True):
 
 
 # import asyncio
-# asyncio.run(recover_rent_client_from_instructions(go_local=True))
+# asyncio.run(recover_rent_client_from_instructions(go_local=False))

@@ -111,14 +111,7 @@ class AssociatedTokenAccounts(BaseModel):
     #     return values
 
 
-class RequestTransaction(BaseModel):
-    owner: constr(pattern=r'^[1-9A-HJ-NP-Za-km-z]{44}$') = (
-        Field(
-            ...,
-            description='Owner account address.',
-            example='7dLn2WU6vX6Yk1BeMoAAumx7grc79TdcUgrpqvA9CvFi',
-        )
-    )
+class RequestTransactionToken(BaseModel):
     token_mint: constr(pattern=r'^[1-9A-HJ-NP-Za-km-z]{32,50}$') = Field(
         ...,
         description='The mint address of the token. Supports standard Solana mint format and extended formats.',
@@ -129,6 +122,22 @@ class RequestTransaction(BaseModel):
     )
     balance: float = Field(
         ..., description='ATA SOls balance'
+    )
+
+
+class RequestTransaction(BaseModel):
+    owner: constr(pattern=r'^[1-9A-HJ-NP-Za-km-z]{44}$') = (
+        Field(
+            ...,
+            description='Owner account address.',
+            example='7dLn2WU6vX6Yk1BeMoAAumx7grc79TdcUgrpqvA9CvFi',
+        )
+    )
+    tokens: list[RequestTransactionToken] = (
+        Field(
+            ...,
+            description='A list of tokens addresses with ATA balance and token decimals.',
+        )
     )
     fee: float = Field(
         ..., description='GhostFunds fee.'

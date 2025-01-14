@@ -23,27 +23,29 @@ async def request_close_ata_instructions(
 ):
     try:
         owner = body.owner
-        token = body.token_mint
-        decimals = body.decimals
-        balance = body.balance
         fee = body.fee
+        tokens = body.tokens
+        if not tokens:
+            instructions = Instructions(
+                response=None
+            )
+            return instructions
+
+        tokens = [token.model_dump() for token in tokens]
 
         last_fee = list(appconfig.GHOSTFUNDS_FEES_PERCENTAGES.values())[-1]
         if fee not in appconfig.GHOSTFUNDS_FEES_PERCENTAGES.values() or fee < last_fee:
             # Assigning unknown or lower fee
-            print("Warning: unknown fee of {} received from account {} on token {}. Adjusting fee to be {}".format(
+            print("Warning: unknown fee of {} received from account {}. Adjusting fee to be {}".format(
                 fee,
                 owner,
-                token,
                 appconfig.GHOSTFUNDS_FEES_PERCENTAGES[1]
             ))
             fee = appconfig.GHOSTFUNDS_FEES_PERCENTAGES[1]
 
         instructions = await close_burn_ata_instructions(
             owner=Pubkey.from_string(owner),
-            token_mint=Pubkey.from_string(token),
-            decimals=decimals,
-            balance=balance,
+            tokens=tokens,
             fee=fee
         )
 

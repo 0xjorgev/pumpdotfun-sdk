@@ -31,7 +31,10 @@ ls -l /var/run/docker.sock
 ## restart 
 sudo systemctl restart docker
 
-# Pull the image ###########################
+# #####################################################
+# Copy and paste in EC2 terminal
+# login and Pull the image ###########################
+aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin 237733826785.dkr.ecr.eu-west-1.amazonaws.com
 docker pull 237733826785.dkr.ecr.eu-west-1.amazonaws.com/ghostfunds-ata-service:latest
 ## List images
 #### aws ecr list-images --repository-name ghostfunds-ata-service --region eu-west-1
@@ -42,7 +45,7 @@ docker stop $CONTAINER_ID
 docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' | grep -v ':latest' | awk '{print $2}' | xargs docker rmi -f
 # Run the docker container
 docker run --memory=512m --memory-swap=512m -d -p 443:8000 237733826785.dkr.ecr.eu-west-1.amazonaws.com/ghostfunds-ata-service:latest
-### #####################################
+### ##################################################
 
 # Start Docker when EC2 instance starts
 ## Create start-docker-container.sh and add the code 
