@@ -44,7 +44,7 @@ docker stop $CONTAINER_ID
 ### Remove previous images
 docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' | grep -v ':latest' | awk '{print $2}' | xargs docker rmi -f
 # Run the docker container
-docker run --memory=512m --memory-swap=512m -d -p 443:8000 237733826785.dkr.ecr.eu-west-1.amazonaws.com/ghostfunds-ata-service:latest
+sudo service start-docker-container.sh start
 ### ##################################################
 
 # Start Docker when EC2 instance starts

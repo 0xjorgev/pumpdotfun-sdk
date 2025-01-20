@@ -29,6 +29,7 @@ async def associated_token_accounts_count(
         accounts_for_manual_review=data["accounts_for_manual_review"],
         rent_balance=data["rent_balance"],
         rent_balance_usd=data["rent_balance_usd"],
-        fee=data["fee"]
+        fee=data["fee"],
+        msg=data["msg"],
     )
     return response

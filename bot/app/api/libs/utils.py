@@ -225,9 +225,10 @@ async def count_associated_token_accounts(
         "accounts_for_manual_review": 0,
         "rent_balance": 0,
         "rent_balance_usd": 0,
-        "fee": 0
+        "fee": 0,
+        "msg": None
     }
-    min_token_value = 1
+    min_token_value = appconfig.MIN_TOKEN_VALUE
     account_samples = 5
 
     # TODO: implement token's black list (like USDC, etc)
@@ -249,6 +250,12 @@ async def count_associated_token_accounts(
         account for account in original_accounts
         if account["account"]["data"]["parsed"]["info"]["mint"] not in token_blacklist
     ]
+
+    # Safety trimming: big accounts can crash the api server
+    total["total_accounts"] = len(accounts)
+    if len(accounts) >= appconfig.MAX_RETRIEVABLE_ACCOUNTS:
+        accounts = accounts[0: appconfig.MAX_RETRIEVABLE_ACCOUNTS]
+        total["msg"] = appconfig.MAX_RETRIEVABLE_ACCOUNTS_MESSAGE
 
     if accounts:
         usd_sol_value = get_solana_price()
@@ -305,7 +312,7 @@ async def detect_dust_token_accounts(
     :param wallet_pubkey: The public address of the Solana wallet.
     :return: Token balance as a float.
     """
-    min_token_value = 1
+    min_token_value = appconfig.MIN_TOKEN_VALUE
     account_samples = 5
     working_balance = 0
     # Refactor this: remove this line of code and test as client is not being used
@@ -321,6 +328,13 @@ async def detect_dust_token_accounts(
 
         if not accounts:
             return [], page, total_items
+
+        if len(accounts) >= appconfig.MAX_RETRIEVABLE_ACCOUNTS:
+            print("Warning: Big account detected {} holding {} atas".format(
+                str(wallet_pubkey),
+                len(accounts)
+            ))
+            accounts = accounts[0: appconfig.MAX_RETRIEVABLE_ACCOUNTS]
 
         # Fetch the current Solana price
         sol_price = get_solana_price()

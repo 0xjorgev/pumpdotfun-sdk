@@ -34,6 +34,9 @@ class CountAssociatedTokenAccounts(BaseModel):
     fee: float = Field(
         0, description='GhostFunds fee.'
     )
+    msg: Optional[str] = Field(
+        None, description='Message from backend server'
+    )
 
 
 class AssociatedTokenAccount(BaseModel):

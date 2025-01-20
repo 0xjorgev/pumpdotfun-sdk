@@ -1,6 +1,25 @@
 # TODO
-√ associated_token_accounts/burn_and_close/instructions
-  √ Si el fee tiene un vallor raro, entonces será 5% por defecto
+- Backend:
+  √ Test that fetching dust accounts includes a max
+  √ test this in local docker and upload changes to AWS
+- Fontend:
+  - Deal with none 200 responses like 503 Service Unavailable
+  - Solve spinner bug: when fetching takes too long the spinner keps going after page refreshes
+  - Create main page template with
+    - Upper menu
+      - Ghost icon left 20% width
+      - Menu 60% right ident
+        - About us
+        - GhostFunds app
+      - Connect Wallet top right 20%
+
+    - right sidebar 20%
+      - Widget info section of 20% height
+      - Transaction list of 80% height
+    - Middle section of 80%
+      - Information section 20% of height
+      - Pagination section 80% of height
+
 
 √ Instructions:
   √ have up to 10 burn and close accounts at the same time
@@ -18,7 +37,7 @@
     - Pagination section:
       - PLace holder message saying: Not counts available to shown.
     - Widget:
-      - Claim History
+      - Claimed History
       - Show Ghost icon
       - Place holder message: No history available
   - When connected: 
@@ -38,14 +57,14 @@
         - Footer:
           - Fix 10 page pagination
       - Widget:
-        - Claim History.
+        - Claimed History.
         - Total claimed in Sols in big
         - Total claimed in usd
-        - Accounts closed (check a better term for this)
+        - Managed Accounts (check a better term for this)
         - List of actions (no pagination)
           - Columns:
             - Abreviated Signature  -> transaction link to solscan
-            - Accounts              -> transaction link to solscan
+            - Accounts invoilved    -> transaction link to solscan
 
 
 

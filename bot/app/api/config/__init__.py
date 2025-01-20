@@ -34,6 +34,8 @@ class AuthConfig:
     BACKEND_MAX_INSTRUCTIONS = 10
 
     MIN_TOKEN_VALUE = 0.0001  # Min value of a token to not be considered dust
+    MAX_RETRIEVABLE_ACCOUNTS = 1100  # Safety. To avoid api server to crash
+    MAX_RETRIEVABLE_ACCOUNTS_MESSAGE = "TOO_MANY_ATAS"
 
     RETRIES = 5
     RPC_URL_HELIUS = "https://mainnet.helius-rpc.com/?api-key=f32b640c-6877-43e7-924b-2035b448d17e"
