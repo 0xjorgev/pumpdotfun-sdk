@@ -41,6 +41,16 @@ class AuthConfig:
     RPC_URL_HELIUS = "https://mainnet.helius-rpc.com/?api-key=f32b640c-6877-43e7-924b-2035b448d17e"
     RPC_URL_QUICKNODE = "https://orbital-hardworking-knowledge.solana-mainnet.quiknode.pro/be0d348509d4f9ae26cd7371cd7a08b7d784324d"  # noqa: E501
     RPC_JITO_URL = "https://amsterdam.mainnet.block-engine.jito.wtf/api/v1"
+    SOL_USD_QUOTE = [
+        {
+            "url": "https://quote-api.jup.ag/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=1000000000&slippageBps=1",
+            "vendor": "jupiter",
+        },
+        {
+            "url": "https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd",
+            "vendor": "coingecko",
+        }
+    ]
 
     # PAGINATION
     DEFAULT_PAGE = 1

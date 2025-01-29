@@ -66,19 +66,28 @@ def get_solana_price() -> float:
     retries = appconfig.RETRIES
     price = 0
     counter = 0
+    current_source = 0
     while True:
         try:
             if counter >= retries:
                 break
 
-            response = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd")
+            source = appconfig.SOL_USD_QUOTE[current_source]
+            response = requests.get(source["url"])
             response.raise_for_status()
             price_data = response.json()
-            price = price_data["solana"]["usd"]
+            price = 0
+            match source["vendor"]:
+                case "coingecko":
+                    price = price_data["solana"]["usd"]
+                case "jupiter":
+                    price = round(float(price_data["swapUsdValue"]), 2)
             break
         except Exception:
             counter += 1
-            print("get_solana_price Error: Failed to fetch Solana price. retriying {} of {}".format(
+            current_source = 0 if current_source >= len(appconfig.SOL_USD_QUOTE) else current_source + 1
+            print("get_solana_price Error: Failed to fetch Solana price. Retriying now with {}. Retrying {} of {} times".format(
+                appconfig.SOL_USD_QUOTE[current_source]["vendor"],
                 counter,
                 retries
             ))
@@ -160,7 +169,9 @@ def get_token_metadata(token_address: str) -> dict:
                 continue
 
             content = response.json()
-            metadata.update(content["result"]["content"]["files"][0])
+            file_dict = {'uri': None, 'cdn_uri': None, 'mime': None}
+            files = content["result"]["content"]["files"]
+            metadata.update(files[0] if files else file_dict)
             metadata.update(content["result"]["content"]["metadata"])
             metadata["authority"] = content["result"]["authorities"][0]["address"]
             metadata["supply"] = content["result"]["token_info"]["supply"]
@@ -286,7 +297,6 @@ async def count_associated_token_accounts(
         token_ammount = account["account"]["data"]["parsed"]["info"]["tokenAmount"]["uiAmount"]
 
         token_value = 1
-        total["total_accounts"] += 1
         if token_ammount * token_value < min_token_value:
             total["burnable_accounts"] += 1
         else:
