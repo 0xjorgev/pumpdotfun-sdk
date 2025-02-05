@@ -273,7 +273,7 @@ async def count_associated_token_accounts(
         if usd_sol_value == 0:
             return total
         # Calculating accounts balance as AN APROXIMATION to speed up this process
-        account_sample_list = accounts
+        account_sample_list = list(range(len(accounts)))
         if len(accounts) > account_samples:
             my_list = list(range(len(accounts)))
             # Generate X random positions
@@ -282,7 +282,7 @@ async def count_associated_token_accounts(
             account_sample_list = [my_list[pos] for pos in random_positions]
 
         sum_balance = 0
-        for index in range(len(account_sample_list)):
+        for index in account_sample_list:
             associated_tokan_account = accounts[index]["pubkey"]
             sum_balance += await get_solana_balance(public_key=Pubkey.from_string(associated_tokan_account))
 
@@ -325,6 +325,7 @@ async def detect_dust_token_accounts(
     min_token_value = appconfig.MIN_TOKEN_VALUE
     account_samples = 5
     working_balance = 0
+    account_output = []
     # Refactor this: remove this line of code and test as client is not being used
     try:
         total_items = 0
@@ -351,8 +352,8 @@ async def detect_dust_token_accounts(
         if sol_price == 0:
             return [], page, total_items
 
+        account_sample_list = list(range(len(accounts)))
         if do_balance_aproximation:
-            account_sample_list = accounts
             if len(accounts) > account_samples:
                 my_list = list(range(len(accounts)))
                 # Generate X random positions
@@ -360,15 +361,13 @@ async def detect_dust_token_accounts(
                 # Get the 5 random values from the list
                 account_sample_list = [my_list[pos] for pos in random_positions]
 
-            sum_balance = 0
-            for index in account_sample_list:
-                associated_tokan_account = accounts[index]["pubkey"]
-                sum_balance += await get_solana_balance(public_key=Pubkey.from_string(associated_tokan_account))
+        sum_balance = 0
+        for index in account_sample_list:
+            associated_tokan_account = accounts[index]["pubkey"]
+            sum_balance += await get_solana_balance(public_key=Pubkey.from_string(associated_tokan_account))
 
-            working_balance = sum_balance / len(account_sample_list)
+        working_balance = sum_balance / len(account_sample_list)
 
-        counter = 0
-        account_output = []
         # Sort ATAs by mint address (this will help with the pagination)
         sorted_accounts = sorted(
             accounts,
@@ -389,6 +388,7 @@ async def detect_dust_token_accounts(
         # Paginate the list
         sorted_accounts = sorted_accounts[start_index:end_index]
 
+        counter = 0
         for account in sorted_accounts:
             counter += 1
 
