@@ -2,7 +2,8 @@ from fastapi import APIRouter
 
 from solders.pubkey import Pubkey
 
-from api.handlers.exceptions import EntityNotFoundException
+from api.config import appconfig
+from api.handlers.exceptions import EntityNotFoundException, TooManyInstructionsException
 from api.models.outer_models import Quote, RequestTransaction
 from api.libs.utils import close_ata_transaction
 router = APIRouter()
@@ -19,14 +20,31 @@ async def request_close_ata_transaction(
 ):
     try:
         owner = body.owner
-        token = body.token_mint
-        decimals = body.decimals
+        fee = body.fee
+        tokens = body.tokens
+        if not tokens:
+            instructions = Quote(
+                quote=None
+            )
+            return instructions
+
+        if len(tokens) > appconfig.BACKEND_MAX_INSTRUCTIONS:
+            raise TooManyInstructionsException(detail="Too many instructions")
+
+        last_fee = list(appconfig.GHOSTFUNDS_FEES_PERCENTAGES.values())[-1]
+        if fee not in appconfig.GHOSTFUNDS_FEES_PERCENTAGES.values() or fee < last_fee:
+            # Assigning unknown or lower fee
+            print("Warning: unknown fee of {} received from account {}. Adjusting fee to be {}".format(
+                fee,
+                owner,
+                appconfig.GHOSTFUNDS_FEES_PERCENTAGES[1]
+            ))
+            fee = appconfig.GHOSTFUNDS_FEES_PERCENTAGES[1]
 
         transaction = await close_ata_transaction(
             owner=Pubkey.from_string(owner),
-            token_mint=Pubkey.from_string(token),
-            decimals=decimals,
-            encode_base64=True
+            tokens=tokens,
+            fee=fee
         )
 
         quote = Quote(

@@ -282,7 +282,7 @@ async def count_associated_token_accounts(
             account_sample_list = [my_list[pos] for pos in random_positions]
 
         sum_balance = 0
-        for index in account_sample_list:
+        for index in range(len(account_sample_list)):
             associated_tokan_account = accounts[index]["pubkey"]
             sum_balance += await get_solana_balance(public_key=Pubkey.from_string(associated_tokan_account))
 
@@ -293,14 +293,14 @@ async def count_associated_token_accounts(
 
     accounts_for_manual_review = 0
     for account in accounts:
-        mint = account["account"]["data"]["parsed"]["info"]["mint"]
+        # mint = account["account"]["data"]["parsed"]["info"]["mint"]
         token_ammount = account["account"]["data"]["parsed"]["info"]["tokenAmount"]["uiAmount"]
 
         token_value = 1
         if token_ammount * token_value < min_token_value:
             total["burnable_accounts"] += 1
-        else:
-            print("token {} has significan value".format(mint))
+        # else:
+        #     print("token {} has significan value".format(mint))
 
     total["accounts_for_manual_review"] = accounts_for_manual_review
 
@@ -560,8 +560,8 @@ def get_associated_token_address(owner: Pubkey, mint: Pubkey) -> Pubkey:
 
 async def close_ata_transaction(
     owner: Pubkey,
-    token_mint: Pubkey,
-    decimals: int,
+    tokens: list[dict],
+    fee: float,
     encode_base64: bool = True
 ) -> str:
     """
@@ -574,71 +574,110 @@ async def close_ata_transaction(
     txn = None
     async with AsyncClient(appconfig.RPC_URL_HELIUS) as client:
         try:
-            associated_token_account = get_associated_token_address(
-                owner=owner,
-                mint=token_mint
-            )
-            response = await client.get_account_info(associated_token_account)
-            account_info = response.value
-            if not account_info:
-                print("Associated token account {} does not exist.".format(
-                    associated_token_account
-                ))
-                raise EntityNotFoundException(
-                    detail="Associated token account {} nor found.".format(
-                        str(associated_token_account)
+            # Will set both burn and close intructions for every ATA
+            burn_close_instructions = []
+            for token in tokens:
+                associated_token_account = get_associated_token_address(
+                    owner=owner,
+                    mint=Pubkey.from_string(token.token_mint)
+                )
+                response = await client.get_account_info(associated_token_account)
+                account_info = response.value
+                if not account_info:
+                    print("Associated token account {} does not exist.".format(
+                        associated_token_account
+                    ))
+                    raise EntityNotFoundException(
+                        detail="Associated token account {} nor found.".format(
+                            str(associated_token_account)
+                        )
+                    )
+
+                # BURN
+                data = account_info.data
+                if len(data) != 165:
+                    print("close_burn_ata_instructions-> Error: Invalid data length for ATA {} for token {}".format(
+                        str(associated_token_account),
+                        token.token_mint
+                    ))
+                (
+                    mint,
+                    owner_data,
+                    amount_lamports,
+                    delegate_option,
+                    delegate,
+                    state,
+                    is_native_option,
+                    is_native,
+                    delegated_amount,
+                    close_authority_option,
+                    close_authority
+                ) = struct.unpack("<32s32sQ4s32sB4sQ8s4s32s", data)
+
+                amount = amount_lamports
+                mint = token.token_mint
+                decimals = token.decimals
+
+                # Construct the burn instruction
+                params = BurnCheckedParams(
+                    program_id=TOKEN_PROGRAM_ID,
+                    mint=Pubkey.from_string(mint),
+                    account=associated_token_account,
+                    owner=owner,
+                    amount=amount,
+                    decimals=decimals,
+                    signers=[owner]
+                )
+                burn_ix = burn_checked(params=params)
+                # burn_ix_bytes = bytes(burn_ix)
+
+                # CLOSE
+                # Create the close account instruction
+                close_ix = close_account(
+                    CloseAccountParams(
+                        program_id=TOKEN_PROGRAM_ID,
+                        account=associated_token_account,
+                        dest=owner,
+                        owner=owner
                     )
                 )
+                # close_ix_bytes = bytes(close_ix)
 
-            # BURN
-            data = account_info.data
-            if len(data) != 165:
-                print("close_ata_transaction-> Error: Invalid data length for ATA {} for token {}".format(
-                    str(associated_token_account),
-                    str(token_mint)
-                ))
-            (
-                mint,
-                owner_data,
-                amount_lamports,
-                delegate_option,
-                delegate,
-                state,
-                is_native_option,
-                is_native,
-                delegated_amount,
-                close_authority_option,
-                close_authority
-            ) = struct.unpack("<32s32sQ4s32sB4sQ8s4s32s", data)
+                burn_close_instructions.append(burn_ix)
+                burn_close_instructions.append(close_ix)
 
-            amount = amount_lamports
+            # Required instructions to set compute unit limit and price
+            compute_unit_price_ix = set_compute_unit_price(5_000)
+            # compute_unit_price_ix_bytes = bytes(compute_unit_price_ix)
 
-            # Construct the burn instruction
-            params = BurnCheckedParams(
-                program_id=TOKEN_PROGRAM_ID,
-                mint=token_mint,
-                account=associated_token_account,
+            compute_units = calculate_compute_units(atas=len(tokens))
+            compute_unit_limit_ix = set_compute_unit_limit(units=compute_units)
+            # compute_unit_limit_ix_bytes = bytes(compute_unit_limit_ix)
+
+            # Variable fee
+            # Summing all ATAs balances to calculate variable fee
+            fee_ix_list = get_fee_instructions(
+                fee=fee,
+                balance=sum(token.balance for token in tokens),
                 owner=owner,
-                amount=amount,
-                decimals=decimals,
-                signers=[owner]
+                atas=len(tokens)
             )
-            burn_ix = burn_checked(params=params)
+            # fee_ix_list_bytes = [bytes(fee_ix) for fee_ix in fee_ix_list]
 
-            # CLOSE
-            # Create the close account instruction
-            close_ix = close_account(
-                CloseAccountParams(
-                    program_id=TOKEN_PROGRAM_ID,
-                    account=associated_token_account,
-                    dest=owner,
-                    owner=owner
-                )
-            )
+            # Package all instructions as hex values from bytes into a single list
+            instructions = [
+                compute_unit_price_ix,  # Convert to hex for compatibility
+                compute_unit_limit_ix,
+            ]
+            instructions.extend(burn_close_instructions)
+            instructions.extend(fee_ix_list)
 
-            msg = Message(
-                instructions=[set_compute_unit_price(1_000), burn_ix, close_ix],
-                payer=owner
+            blockhash = await client.get_latest_blockhash()
+            recent_blockhash = blockhash.value.blockhash
+            msg = Message.new_with_blockhash(
+                instructions=instructions,
+                payer=owner,
+                blockhash=recent_blockhash
             )
 
             tx = Transaction.new_unsigned(message=msg)
@@ -646,10 +685,19 @@ async def close_ata_transaction(
             if encode_base64:
                 txn = base64.b64encode(txn).decode('ascii')
 
+            # from solders.message import MessageV0
+            # from solders.transaction import VersionedTransaction
+
+            # tx = VersionedTransaction.populate(message=msg, signatures=[])
+            # # tx = VersionedTransaction(message=msg, keypairs=[])
+            # txn = bytes(tx)
+            # if encode_base64:
+            #     txn = base64.b64encode(txn).decode('ascii')
+
         except EntityNotFoundException as enfe:
             raise enfe
         except Exception as e:
-            print("request_close_ata_transaction Error: {}".format(e))
+            print("request_close_ata_instruction Error: {}".format(e))
 
     return txn
 
@@ -696,7 +744,7 @@ def calculate_compute_units(atas: int):
 async def close_burn_ata_instructions(
     owner: Pubkey,
     tokens: list[dict],
-    fee: float
+    fee: float,
 ) -> list[hex]:
     """
     Burs all tokens from the associated token account
@@ -823,64 +871,77 @@ async def close_burn_ata_instructions(
     return instructions
 
 
-async def recover_rent_client_from_transaction():
+async def recover_rent_client_from_transaction(go_local: bool = True):
     from bot.config import appconfig
     keypair = Keypair.from_base58_string(appconfig.PRIVKEY)
 
     body = {
         "owner": "4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb",
-        "token_mint": "bpMAcs5cEDu33kbCgTcBu7HtuZwsoNwsMH839jupump",
-        "decimals": 6
+        "fee": 0.045,
+        "tokens": [
+            {
+                "token_mint": "56B2cJQBdwQvambDvfZZuFp7PPBYMDw71UkgbH1Ppump",
+                "decimals": 6,
+                "balance": 0.002039
+            }
+        ],
     }
     try:
-        response = requests.post(
-            url="http://localhost:443/api/associated_token_accounts/burn_and_close/transaction",
-            json=body,
-            headers={"Content-Type": "application/json"}
-        )
-        if response.status_code != 200:
-            print("recover_rent_client: Bad status code '{}' recevied".format(
-                response.status_code
-            ))
-            return response
+        if not go_local:
+            response = requests.post(
+                url="http://localhost:443/api/associated_token_accounts/burn_and_close/transaction",
+                json=body,
+                headers={"Content-Type": "application/json"}
+            )
+            if response.status_code != 200:
+                print("recover_rent_client: Bad status code '{}' recevied".format(
+                    response.status_code
+                ))
+                return response
 
-        content = response.json()
-        txn_base64 = content["quote"]
+            content = response.json()
+            txn_base64 = content["quote"]
+        else:
+            txn_base64 = await close_ata_transaction(
+                owner=Pubkey.from_string(body["owner"]),
+                tokens=body["tokens"],
+                fee=body["fee"]
+            )
 
         # Decode the Base64 string to bytes
         txn_bytes = base64.b64decode(txn_base64)
 
-        # Recreate the Transaction object from bytes
-        vst = Transaction.from_bytes(txn_bytes)
+        # # Get the message from the transaction
+        # msg = vst.message
 
-        # Get the message from the transaction
-        msg = vst.message
-
-        instructions = [
-            Instruction(
-                program_id=msg.account_keys[ci.program_id_index],
-                accounts=[
-                    AccountMeta(pubkey=msg.account_keys[idx], is_signer=idx == 0, is_writable=True)
-                    for idx in ci.accounts
-                ],
-                data=ci.data
-            )
-            for ci in msg.instructions
-        ]
+        # instructions = [
+        #     Instruction(
+        #         program_id=msg.account_keys[ci.program_id_index],
+        #         accounts=[
+        #             AccountMeta(pubkey=msg.account_keys[idx], is_signer=idx == 0, is_writable=True)
+        #             for idx in ci.accounts
+        #         ],
+        #         data=ci.data
+        #     )
+        #     for ci in msg.instructions
+        # ]
 
         # Send the signed transaction (example assumes using a Solana RPC client)
         async with AsyncClient(appconfig.RPC_URL_HELIUS) as client:
             blockhash = await client.get_latest_blockhash()
             recent_blockhash = blockhash.value.blockhash
 
-            signed_tx = Transaction.new_signed_with_payer(
-                instructions=instructions,
-                payer=keypair.pubkey(),
-                signing_keypairs=[keypair],
-                recent_blockhash=recent_blockhash
-            )
+            # Recreate the Transaction object from bytes
+            signed_tx = Transaction.from_bytes(txn_bytes)
+            signed_tx.sign(keypairs=[keypair], recent_blockhash=recent_blockhash)
 
-            send_result = None
+            # signed_tx = Transaction.new_signed_with_payer(
+            #     instructions=instructions,
+            #     payer=keypair.pubkey(),
+            #     signing_keypairs=[keypair],
+            #     recent_blockhash=recent_blockhash
+            # )
+
             tx_signature = await client.send_transaction(
                 txn=signed_tx,
                 opts=TxOpts(preflight_commitment=Confirmed)
@@ -896,10 +957,10 @@ async def recover_rent_client_from_transaction():
             await client.confirm_transaction(tx_signature.value, commitment="confirmed")
             print("Transaction confirmed")
 
-        return send_result
+        return
     except Exception as e:
         print("recover_rent_client_from_transaction-> Error: {}".format(e))
-        return response
+        return
 
 
 async def recover_rent_client_from_instructions(go_local: bool = True):
@@ -991,4 +1052,4 @@ async def recover_rent_client_from_instructions(go_local: bool = True):
 
 
 # import asyncio
-# asyncio.run(recover_rent_client_from_instructions(go_local=False))
+# asyncio.run(recover_rent_client_from_transaction(go_local=False))
