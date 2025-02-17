@@ -1,22 +1,17 @@
-# Use an official Python runtime as a parent image
-#FROM python:3.10-slim
-FROM python:3.12-slim
+FROM public.ecr.aws/lambda/python:3.12-arm64
 
-# Set the working directory
-WORKDIR /app
+WORKDIR /var/task
+# Install dependencies
+RUN dnf update -y && dnf install -y zip gcc gcc-c++ make glibc-devel && dnf clean all
 
-# Copy the current directory contents into the container
-COPY . /app
+COPY requirements.txt .
+COPY ./api ${LAMBDA_TASK_ROOT}/api
+COPY main.py ${LAMBDA_TASK_ROOT}
 
-# Install any needed packages specified in requirements.txt
+# Install Solders
 RUN pip install --upgrade pip
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt 
 
-# Make port 443 available to the world outside this container
-EXPOSE 443
 
-# Define environment variable
-ENV NAME=World
-
-# Run app.py when the container launches
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Command for Lambda
+CMD ["main.handler"]

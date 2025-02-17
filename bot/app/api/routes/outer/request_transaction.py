@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+import logging
 
 from solders.pubkey import Pubkey
 
@@ -34,7 +35,7 @@ async def request_close_ata_transaction(
         last_fee = list(appconfig.GHOSTFUNDS_FEES_PERCENTAGES.values())[-1]
         if fee not in appconfig.GHOSTFUNDS_FEES_PERCENTAGES.values() or fee < last_fee:
             # Assigning unknown or lower fee
-            print("Warning: unknown fee of {} received from account {}. Adjusting fee to be {}".format(
+            logging.warning("request_close_ata_transaction: unknown fee of {} received from account {}. Adjusting fee to be {}".format(
                 fee,
                 owner,
                 appconfig.GHOSTFUNDS_FEES_PERCENTAGES[1]

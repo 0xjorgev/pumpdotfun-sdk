@@ -63,4 +63,17 @@ sudo chkconfig start-docker-container.sh on
 sudo service start-docker-container.sh start
 docker ps
 
+## ################
+## Lambda Functions
+aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin 237733826785.dkr.ecr.eu-west-1.amazonaws.com
+##### cd bot/app/AWS/lambda_functions/
+docker build --no-cache --provenance=false --platform linux/arm64/v8 -t ghostfunds-backend-fastapi .
+## Docker tag and push image into AWS ECR
+docker tag ghostfunds-backend-fastapi:latest 237733826785.dkr.ecr.eu-west-1.amazonaws.com/ghostfunds-backend-fastapi:latest
+docker push 237733826785.dkr.ecr.eu-west-1.amazonaws.com/ghostfunds-backend-fastapi:latest
+## Updaing Lambda function docker image
+aws lambda update-function-code \
+  --function-name ghostfunds-backend-fastapi-docker \
+  --image-uri 237733826785.dkr.ecr.eu-west-1.amazonaws.com/ghostfunds-backend-fastapi:latest
 
+aws lambda get-function-configuration --function-name ghostfunds-backend-fastapi-docker
