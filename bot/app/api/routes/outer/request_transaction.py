@@ -4,7 +4,7 @@ import logging
 from solders.pubkey import Pubkey
 
 from api.config import appconfig
-from api.handlers.exceptions import EntityNotFoundException, TooManyInstructionsException
+from api.handlers.exceptions import EntityNotFoundException, TooManyInstructionsException, ErrorProcessingData
 from api.models.outer_models import Quote, RequestTransaction
 from api.libs.utils import close_ata_transaction
 router = APIRouter()
@@ -54,5 +54,9 @@ async def request_close_ata_transaction(
         return quote
     except EntityNotFoundException as e:
         raise EntityNotFoundException(
+            detail=e.detail
+        )
+    except ErrorProcessingData as e:
+        raise ErrorProcessingData(
             detail=e.detail
         )
