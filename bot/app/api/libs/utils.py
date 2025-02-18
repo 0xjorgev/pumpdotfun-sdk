@@ -432,6 +432,7 @@ async def detect_dust_token_accounts(
 
             mint = account["account"]["data"]["parsed"]["info"]["mint"]
             owner = account["account"]["data"]["parsed"]["info"]["owner"]
+            amount = account["account"]["data"]["parsed"]["info"]["tokenAmount"]["amount"]
             token_amount = account["account"]["data"]["parsed"]["info"]["tokenAmount"]["uiAmount"]
             decimals = account["account"]["data"]["parsed"]["info"]["tokenAmount"]["decimals"]
             associated_token_account = account["pubkey"]
@@ -457,6 +458,7 @@ async def detect_dust_token_accounts(
                     "token_mint": mint,
                     "associated_token_account": associated_token_account,
                     "owner": owner,
+                    "token_amount_lamports": int(amount),
                     "token_amount": token_amount,
                     "token_price": token_price,
                     "token_value": token_value,
@@ -621,43 +623,43 @@ async def close_ata_transaction(
                     owner=owner,
                     mint=Pubkey.from_string(token.token_mint)
                 )
-                response = await client.get_account_info(associated_token_account)
-                account_info = response.value
-                if not account_info:
-                    logging.error("close_ata_transaction: Associated token account {} does not exist.".format(
-                        associated_token_account
-                    ))
-                    raise EntityNotFoundException(
-                        detail="Associated token account {} nor found.".format(
-                            str(associated_token_account)
-                        )
-                    )
+                # response = await client.get_account_info(associated_token_account)
+                # account_info = response.value
+                # if not account_info:
+                #     logging.error("close_ata_transaction: Associated token account {} does not exist.".format(
+                #         associated_token_account
+                #     ))
+                #     raise EntityNotFoundException(
+                #         detail="Associated token account {} nor found.".format(
+                #             str(associated_token_account)
+                #         )
+                #     )
 
                 # BURN
-                data = account_info.data
-                if len(data) != 165:
-                    logging.error("close_burn_ata_instructions-> Error: Invalid data length for ATA {} for token {}".format(  # noqa: 501
-                        str(associated_token_account),
-                        token.token_mint
-                    ))
-                    raise ErrorProcessingData(
-                        detail="Unprocessed Token"
-                    )
-                (
-                    mint,
-                    owner_data,
-                    amount_lamports,
-                    delegate_option,
-                    delegate,
-                    state,
-                    is_native_option,
-                    is_native,
-                    delegated_amount,
-                    close_authority_option,
-                    close_authority
-                ) = struct.unpack("<32s32sQ4s32sB4sQ8s4s32s", data)
+                # data = account_info.data
+                # if len(data) != 165:
+                #     logging.error("close_burn_ata_instructions-> Error: Invalid data length for ATA {} for token {}".format(  # noqa: 501
+                #         str(associated_token_account),
+                #         token.token_mint
+                #     ))
+                #     raise ErrorProcessingData(
+                #         detail="Unprocessed Token"
+                #     )
+                # (
+                #     mint,
+                #     owner_data,
+                #     amount_lamports,
+                #     delegate_option,
+                #     delegate,
+                #     state,
+                #     is_native_option,
+                #     is_native,
+                #     delegated_amount,
+                #     close_authority_option,
+                #     close_authority
+                # ) = struct.unpack("<32s32sQ4s32sB4sQ8s4s32s", data)
 
-                amount = amount_lamports
+                amount = token.token_amount_lamports
                 mint = token.token_mint
                 decimals = token.decimals
 

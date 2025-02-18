@@ -57,6 +57,7 @@ async def fetch_associated_token_accounts(
             token_mint=ata["token_mint"],
             associated_token_account=ata["associated_token_account"],
             owner=ata["owner"],
+            token_amount_lamports=ata["token_amount_lamports"],
             token_amount=ata["token_amount"],
             token_price=ata["token_price"],
             token_value=ata["token_value"],

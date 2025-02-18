@@ -49,6 +49,9 @@ class AssociatedTokenAccount(BaseModel):
     owner: Optional[str] = Field(
         None, description='The owner of the associated token account.'
     )
+    token_amount_lamports: Optional[int] = Field(
+        None, description='The amount of tokens held in lamports.'
+    )
     token_amount: Optional[float] = Field(
         None, description='The amount of tokens held.'
     )
@@ -125,6 +128,9 @@ class RequestTransactionToken(BaseModel):
     )
     balance: float = Field(
         ..., description='ATA SOls balance'
+    )
+    token_amount_lamports: int = Field(
+        ..., description='Token amount in lamports'
     )
 
 
