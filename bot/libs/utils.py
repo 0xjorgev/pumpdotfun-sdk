@@ -19,6 +19,9 @@ from solders.pubkey import Pubkey
 from solders.keypair import Keypair
 from solders.compute_budget import set_compute_unit_price
 from solders.transaction import Transaction
+from solders.account import Account
+from solders.rpc.responses import RpcResponseContext, GetAccountInfoResp
+
 
 from spl.token.instructions import (
     burn_checked,
@@ -34,9 +37,11 @@ class Path:
     def rootPath():
         return "$"
 
+
 class TxType(Enum):
     buy = "buy"
     sell = "sell"
+
 
 class Trader(Enum):
     sniper = "sniper"
@@ -45,9 +50,11 @@ class Trader(Enum):
     analytics = "analytics"
     scanner = "scanner"
 
+
 class Celebrimborg(Enum):
     exit = "exit"
     start = "start"
+
 
 async def get_solana_balance(public_key: Pubkey) -> float:
     """
@@ -82,10 +89,12 @@ def decode_pump_fun_token(token: str) -> Pubkey:
     except Exception as e:
         raise ValueError(f"Failed to decode token: {e}")
 
+
 def initial_buy_calculator(sol_in_bonding_curve: float):
     pump_dont_fun_initial_fund = appconfig.SCANNER_PUMPDONTFUN_INITIAL_FUND
     sols = round(sol_in_bonding_curve - pump_dont_fun_initial_fund, 3)
     return sols
+
 
 def flatten_data(data):
     if isinstance(data, list):
@@ -93,6 +102,7 @@ def flatten_data(data):
     elif isinstance(data, int):
         return data.to_bytes(1, 'little')  # Convert integer to a single byte
     return b""
+
 
 def decode_instruction(raw_data):
     if len(raw_data) >= 5:  # Ensure at least enough data for a float
@@ -106,6 +116,7 @@ def decode_instruction(raw_data):
         return field_id, price_impact
     else:
         return None, None
+
 
 def get_instructions_from_message(msg: Message):
     """
@@ -140,6 +151,7 @@ def get_instructions_from_message(msg: Message):
                 print(f"Instruction {idx} contains priceImpactPct: {decoded_data}")
     
     return parsed_instructions
+
 
 def include_instruction(msg: MessageV0):
     """
@@ -190,6 +202,7 @@ def include_instruction(msg: MessageV0):
         print("Duplicate instruction detected, skipping.")
     return msg
 
+
 def stamp_time(time: datetime, time_stored: dict = None) -> dict:
     time_stored = {} if time_stored is None else time_stored
     tstamp = time.strftime("%Y%m%d%H%M%S")
@@ -199,6 +212,7 @@ def stamp_time(time: datetime, time_stored: dict = None) -> dict:
         time_stored[tstamp] += 1
 
     return time_stored
+
 
 def get_solana_price() -> float:
     """
@@ -230,6 +244,7 @@ def get_solana_price() -> float:
     
     return price
 
+
 def get_token_mint_decimals(mint_address: str) -> int:
     """
     Fetches the decimals value for a given token mint.
@@ -255,46 +270,46 @@ def get_token_mint_decimals(mint_address: str) -> int:
 
     return decimals
 
-async def get_token_accounts_by_owner(wallet_address=str)->dict:
+
+async def get_token_accounts_by_owner(wallet_address=str) -> dict:
     response = {}
-    async with AsyncClient(appconfig.RPC_URL_HELIUS) as client:
-        data = {
-            "jsonrpc": "2.0",
-            "id": "test",
-            "method": "getTokenAccountsByOwner",
-            "params": [
-                wallet_address,
-                {
-                    "programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-                },
-                {
-                    "encoding": "jsonParsed"
-                }
-            ]
-        }
-        try:
-            response = requests.post(
-                    url=appconfig.RPC_URL_HELIUS,
-                    json=data,
-                    headers={"Content-Type": "application/json"}
-                )
-            if response.status_code != 200:
-                print("get_token_accounts_by_owner: Bad status code '{}' recevied for token {}".format(
-                        response.status_code,
-                        wallet_address
-                    )
-                )
-                return response
-
-            content = response.json()
-            response = content["result"]["value"]
-
-            return response
-        except Exception as e:
-            print("get_token_accounts_by_owner-> Error: {}".format(e))
+    data = {
+        "jsonrpc": "2.0",
+        "id": "test",
+        "method": "getTokenAccountsByOwner",
+        "params": [
+            wallet_address,
+            {
+                "programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+            },
+            {
+                "encoding": "jsonParsed"
+            }
+        ]
+    }
+    try:
+        response = requests.post(
+            url=appconfig.RPC_URL_HELIUS,
+            json=data,
+            headers={"Content-Type": "application/json"}
+        )
+        if response.status_code != 200:
+            print("get_token_accounts_by_owner: Bad status code '{}' recevied for token {}".format(
+                response.status_code,
+                wallet_address
+            ))
             return response
 
-def get_token_metadata(token_address: str)->dict:
+        content = response.json()
+        response = content["result"]["value"]
+
+        return response
+    except Exception as e:
+        print("get_token_accounts_by_owner-> Error: {}".format(e))
+        return response
+
+
+def get_token_metadata(token_address: str) -> dict:
     metadata = {}
 
     data = {
@@ -358,6 +373,7 @@ def get_token_metadata(token_address: str)->dict:
             time.sleep(counter)
 
     return metadata
+
 
 async def count_associated_token_accounts(
     wallet_pubkey: Pubkey
@@ -426,6 +442,7 @@ async def count_associated_token_accounts(
     total["accounts_for_manual_review"] = accounts_for_manual_review
 
     return total
+
 
 async def detect_dust_token_accounts(
     wallet_pubkey: Pubkey,
@@ -533,6 +550,7 @@ async def detect_dust_token_accounts(
         except Exception as e:
             print(f"Error fetching token '{token_mint_address}' balance: {e}")
             return account_output
+
 
 async def burn_associated_token_account(
     token: Pubkey,
@@ -679,7 +697,7 @@ async def burn_and_close_associated_token_account(
                     associated_token_account
                 ))
                 return txn_signature
-            
+
             # Derive the associated token account address
             TOKEN_PROGRAM_ID = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
 
@@ -782,7 +800,100 @@ def generate_vanity_wallet(prefix: str, key_sensitive: bool = False) -> Keypair:
                 )
             )
             return keypair
+
+
+def get_account_information(account: Pubkey) -> GetAccountInfoResp:
+    """
+    Fetch account information from Solana RPC and return it as a GetAccountInfoResp object.
     
+    Args:
+        rpc_url (str): The Solana RPC URL.
+        account (str): The account public key in string format.
+    
+    Returns:
+        GetAccountInfoResp: The account information as a GetAccountInfoResp object.
+    """
+    # Prepare the JSON body for the POST request
+    json_body = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "getAccountInfo",
+        "params": [
+            str(account),  # The account public key
+            {"encoding": "base64"}  # Response encoding
+        ]
+    }
+
+    json_response = []
+    loop_counter = 0
+    while loop_counter < appconfig.TRADING_RETRIES:
+        try:
+            # Send the POST request
+            response = requests.post(
+                appconfig.RPC_URL_HELIUS,
+                headers={"Content-Type": "application/json"},
+                json=json_body
+            )
+            response.raise_for_status()  # Raise HTTPStatusError for non-2xx responses
+
+            # Parse the JSON response
+            json_response = response.json()
+            if "result" not in json_response:
+                loop_counter += 1
+                time.sleep(2)
+                continue
+            if "value" in json_response["result"] and not json_response["result"]["value"]:
+                loop_counter += 1
+                time.sleep(2)
+                continue
+
+            break
+        except Exception as e:
+            print("get_account_information-> Exception: {}".format(str(e)))
+            loop_counter += 1
+
+    # Validate the response structure
+    if "result" not in json_response:
+        raise ValueError("Invalid response: 'result' field not found")
+
+    result = json_response["result"]
+    if "value" not in result or "context" not in result:
+        raise ValueError("Invalid response: 'value' or 'context' field not found")
+
+    # Extract and process account information
+    context = RpcResponseContext(slot=result["context"]["slot"])
+
+    # Check if account data exists
+    account_data = result["value"]
+    if account_data is None:
+        account_info = None
+    else:
+        # Decode the account information
+        lamports = account_data["lamports"]
+        owner = Pubkey.from_string(account_data["owner"])
+        executable = account_data["executable"]
+        rent_epoch = account_data["rentEpoch"]
+        data = account_data["data"][0]  # Account data in base64 format
+        encoding = account_data["data"][1]  # Should be "base64"
+
+        if encoding != "base64":
+            raise ValueError(f"Unexpected encoding: {encoding}")
+
+        # Create AccountInfo object
+        account_info = Account(
+            lamports=lamports,
+            owner=owner,
+            executable=executable,
+            rent_epoch=rent_epoch,
+            data=base64.b64decode(data)
+        )
+
+    # Construct the GetAccountInfoResp object
+    account_info_resp = GetAccountInfoResp(context=context, value=account_info)
+
+    return account_info_resp
+
+
 
 async def test():
     prefix = "Ghost"
