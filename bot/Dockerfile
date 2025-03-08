@@ -1,5 +1,6 @@
 # Use an official Python 3.10 image as the base
-FROM python:3.10-slim
+FROM python:3.12-slim
+
 
 # Set the working directory inside the container
 WORKDIR /bot
@@ -44,4 +45,9 @@ EXPOSE 5000 6379
 CMD ["bash"]
 #CMD ["python", "bot/main.py"]
 #CMD ["python", "-m", "bot.main"]
-CMD ["PYTHONPATH=/", "python", "main.py"]
+# CMD ["PYTHONPATH=/", "python", "main.py"]
+# CMD ["bash", "-c", "PYTHONPATH=/ python main.py"]
+WORKDIR /
+ENV PYTHONPATH=/
+#CMD ["python", "bot/main.py"]
+#CMD ["bash", "-c", "python bot/main.py 2>&1 | tee /bot/tax_collector_bot.log"]

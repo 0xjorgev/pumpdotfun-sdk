@@ -6,6 +6,8 @@ import struct
 import time
 import websockets
 
+from datetime import datetime
+
 from construct import Struct, Int64ul, Flag
 from solana.rpc.async_api import AsyncClient
 from solana.rpc.commitment import Confirmed
@@ -19,12 +21,15 @@ from solders.keypair import Keypair
 from solders.message import Message
 from solders.pubkey import Pubkey
 from solders.transaction import Transaction, VersionedTransaction
+from solders.system_program import transfer, TransferParams
+from solders.signature import Signature
 from spl.token.instructions import get_associated_token_address
 import spl.token.instructions as spl_token
 
 from bot.config import appconfig
-from bot.libs.utils import get_account_information, get_token_accounts_by_owner
+from bot.libs.utils import get_account_information
 
+from bot.domain.jito_rpc import JitoJsonRpcSDK
 
 EXPECTED_DISCRIMINATOR = struct.pack("<Q", 6966180631402821399)
 
@@ -169,7 +174,19 @@ async def buy_token(
         data = discriminator + struct.pack("<Q", int(token_amount * 10**6)) + struct.pack("<Q", max_amount_lamports)
         buy_ix = Instruction(appconfig.PUMP_PROGRAM, data, BUY_ACCOUNTS)
 
-        instructions = [compute_unit_price_ix, compute_unit_limit_ix, create_ata_ix, buy_ix]
+        # JITO TIP INSTRUCTION
+        jito_client = JitoJsonRpcSDK(url="https://amsterdam.mainnet.block-engine.jito.wtf/api/v1")
+        jito_tip_accounts = jito_client.get_tip_accounts()
+        jito_tip_account = Pubkey.from_string(jito_tip_accounts["data"]["result"][0])
+        jito_tip = int(0.0001 * 1_000_000_000)
+        jito_transfer = TransferParams(
+            from_pubkey=payer.pubkey(),
+            to_pubkey=jito_tip_account,
+            lamports=jito_tip
+        )
+        jito_ix = transfer(params=jito_transfer)
+
+        instructions = [compute_unit_price_ix, compute_unit_limit_ix, create_ata_ix, buy_ix, jito_ix]
 
         # Last block hash
         blockhash = await client.get_latest_blockhash()
@@ -181,25 +198,37 @@ async def buy_token(
             payer=payer.pubkey()
         )
         try:
-            tx_buy = await client.send_transaction(
-                Transaction([payer], msg, recent_blockhash),
-                opts=TxOpts(preflight_commitment=Confirmed)
-            )
+            transaction = Transaction.new_unsigned(message=msg)
+            # Sign the transaction
+            transaction.sign([payer], recent_blockhash)
+            serialized_transaction = base64.b64encode(bytes(transaction)).decode('ascii')
 
-            print(f"Transaction sent: https://solscan.io/tx/{tx_buy.value}")
+            result = jito_client.send_txn(serialized_transaction)
+            print('Raw API response:', json.dumps(result, indent=2))
 
-            confirmation = await client.confirm_transaction(
-                tx_buy.value,
-                commitment="confirmed",
-                last_valid_block_height=last_valid_block_height
-            )
-            if confirmation.value:
-                print(f"Transaction confirmed: https://solscan.io/tx/{tx_buy.value}")
-                from datetime import datetime
-                confirmation_stamp = datetime.now().timestamp()
-                return tx_buy, confirmation_stamp, token_amount
+            if result['success']:
+                tx_buy = result['data']['result']
+                print(f"Transaction sent: https://solscan.io/tx/{tx_buy}")
+
+                confirmation = await client.confirm_transaction(
+                    Signature.from_string(tx_buy),
+                    commitment="confirmed",
+                    last_valid_block_height=last_valid_block_height
+                )
+                if confirmation.value:
+                    print(f"Transaction confirmed: https://solscan.io/tx/{tx_buy}")
+                    from datetime import datetime
+                    confirmation_stamp = datetime.now().timestamp()
+                    return tx_buy, confirmation_stamp, token_amount
+                else:
+                    print("Transaction not confirmed.")                
             else:
-                print("Transaction not confirmed.")
+                print(f"Failed to send bundle: {result.get('error', 'Unknown error')}")
+
+            # tx_buy = await client.send_transaction(
+            #     Transaction([payer], msg, recent_blockhash),
+            #     opts=TxOpts(preflight_commitment=Confirmed)
+            # )
         except Exception as e:
             print("ERROR. Failed to buy. Exception: {}".format(e))
         return None, None, None
@@ -276,7 +305,11 @@ async def sell_token(
                     AccountMeta(pubkey=associated_token_account, is_signer=False, is_writable=True),
                     AccountMeta(pubkey=payer.pubkey(), is_signer=True, is_writable=True),
                     AccountMeta(pubkey=appconfig.SYSTEM_PROGRAM, is_signer=False, is_writable=False),
-                    AccountMeta(pubkey=appconfig.SYSTEM_ASSOCIATED_TOKEN_ACCOUNT_PROGRAM, is_signer=False, is_writable=False),
+                    AccountMeta(
+                        pubkey=appconfig.SYSTEM_ASSOCIATED_TOKEN_ACCOUNT_PROGRAM,
+                        is_signer=False,
+                        is_writable=False
+                    ),
                     AccountMeta(pubkey=appconfig.SYSTEM_TOKEN_PROGRAM, is_signer=False, is_writable=False),
                     AccountMeta(pubkey=appconfig.PUMP_EVENT_AUTHORITY, is_signer=False, is_writable=False),
                     AccountMeta(pubkey=appconfig.PUMP_PROGRAM, is_signer=False, is_writable=False),
@@ -286,7 +319,7 @@ async def sell_token(
                 data = discriminator + struct.pack("<Q", amount) + struct.pack("<Q", min_sol_output)
                 sell_ix = Instruction(appconfig.PUMP_PROGRAM, data, accounts)
 
-                compute_unit_price_ix = set_compute_unit_price(20_000)
+                compute_unit_price_ix = set_compute_unit_price(80_000)
 
                 compute_units = calculate_compute_units()
                 compute_unit_limit_ix = set_compute_unit_limit(units=compute_units)
@@ -436,7 +469,7 @@ async def listen_for_create_transaction(websocket):
                 "maxSupportedTransactionVersion": 0
             }
         ]
-    })
+    }) 
     await websocket.send(subscription_message)
     print(f"Subscribed to blocks mentioning program: {appconfig.PUMP_PROGRAM}")
 
@@ -501,6 +534,9 @@ async def listen_for_create_transaction(websocket):
                                                 if not decoded_args:
                                                     break
 
+                                                if "mint" not in decoded_args:
+                                                    break
+
                                                 decoded_args["block"] = block["parentSlot"] + 1
                                                 decoded_args["blockTime"] = block["blockTime"]
                                                 decoded_args["buyers"] = []
@@ -510,10 +546,10 @@ async def listen_for_create_transaction(websocket):
                                                     decoded_args["mint"]: decoded_args.copy(),
                                                 }
 
-                                                print("\n> New token: {} at block: {}".format(
-                                                    decoded_args["mint"],
-                                                    decoded_args["block"]
-                                                ))
+                                                # print("\n> New token: {} at block: {}".format(
+                                                #     decoded_args["mint"],
+                                                #     decoded_args["block"]
+                                                # ))
 
                                                 continue
 
@@ -546,28 +582,28 @@ async def listen_for_create_transaction(websocket):
 
                                                     developer = decoded_args.get("developer")
                                                     trader = "developer" if developer == buyer else "sniper"
-                                                    if buyer not in token_data[decoded_buy_args.get('mint')]["seen_buyers"]:
+                                                    if buyer not in token_data[decoded_buy_args.get('mint')]["seen_buyers"]:  # noqa: E501
                                                         # Add the buyer to the set
-                                                        token_data[decoded_buy_args.get('mint')]["seen_buyers"].add(buyer)
+                                                        token_data[decoded_buy_args.get('mint')]["seen_buyers"].add(buyer)  # noqa: E501
                                                         token_data[decoded_buy_args.get('mint')]["buyers"].append({
                                                             'buyer': buyer,
                                                             'trader': trader,
                                                             'tokens_bought': tokens_bought / 10**6,
-                                                            'sol_traded': (sol_traded / 10**9) / 1.01  # taking out Pump.fun fee
+                                                            'sol_traded': (sol_traded / 10**9) / 1.01  # taking out Pump.fun fee  # noqa: E501
                                                         })
 
-                                                        print("Buyer: {}, Tokens Bought: {}, SOL Traded: {}".format(
-                                                            buyer,
-                                                            tokens_bought / 10**6,
-                                                            (sol_traded / 10**9) / 1.01
-                                                        ))
+                                                        # print("Buyer: {}, Tokens Bought: {}, SOL Traded: {}".format(
+                                                        #     buyer,
+                                                        #     tokens_bought / 10**6,
+                                                        #     (sol_traded / 10**9) / 1.01
+                                                        # ))
                                                 continue
                                 # End of transaction loop
                                 # if token_data:
                                 #     for token, data in token_data.items():
-                                #         total_tokens_bought = sum(buyer["tokens_bought"] for buyer in data.get("buyers", []))
+                                #         total_tokens_bought = sum(buyer["tokens_bought"] for buyer in data.get("buyers", []))  # noqa: E501
                                 #         if total_tokens_bought > threshold:
-                                #             print(f"Token {token} exceeds the threshold with {total_tokens_bought} tokens bought.")
+                                #             print(f"Token {token} exceeds the threshold with {total_tokens_bought} tokens bought.")  # noqa: E501
                                 #     break
 
                             # Ending block loop
@@ -581,7 +617,9 @@ async def listen_for_create_transaction(websocket):
                                     )
                                     if total_tokens_bought >= threshold:
                                         if (len(data.get("buyers", [])) > 5):
-                                            print(" Scam 'BIG' token found. Tokens bought {}".format(
+                                            start_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
+                                            print("{} Scam 'BIG' token found. Tokens bought {}".format(
+                                                start_time,
                                                 total_tokens_bought
                                             ))
                                             tradable_tokens.append(data)
@@ -590,7 +628,9 @@ async def listen_for_create_transaction(websocket):
                                         else:
                                             print(" Whale scam found. Discarting token...")
                                     else:
-                                        print("Discarting token...")
+                                        print("*** TESTING token...")
+                                        tradable_tokens.append(data)
+
                                 if tradable_tokens:
                                     keep_loop = False
                                     break  # Breaking transactions loop
@@ -662,10 +702,10 @@ async def trade(websocket: websockets, trades: int):
     #         ))
     #         continue
 
-
     # Calculate time delta: Get timestamp from buy block and timestamp from creation block
     time_delta = abs(confirmation_stamp - token_data["blockTime"])
     sleep_time = 0 if appconfig.TRADING_TIME - time_delta < 0 else appconfig.TRADING_TIME - time_delta
+    sleep_time = 0
     data = {
         "sleep_time": sleep_time,
         "mint": mint,
@@ -678,18 +718,23 @@ async def trade(websocket: websockets, trades: int):
     return data
 
 
-async def main():
+async def main(trades: int):
     # import hashlib
     # hash_bytes = hashlib.sha256(b'global:buy').digest()
     # # Extract the first 8 bytes and unpack them as a little-endian unsigned long long integer
     # buy_discriminator = struct.unpack_from('<Q', hash_bytes[:8])[0]
     # print(buy_discriminator)
 
-    trades = 10
     trade_counter = 0
-    while trade_counter < trades:
+    if (trades == -1):
+        print("Running Tax Collector Bot for {} trades".format(
+            trades if trades != -1 else "'infinite'"
+        ))
+
+    while trade_counter < trades or trades == -1:
         print("Trade Nº {} of {} trades".format(trade_counter + 1, trades))
         data = {}
+        # TODO: implement Helius WSS
         async with websockets.connect(appconfig.WSS_URL_QUICKNODE) as websocket:
             data = await trade(websocket, trades)
 
@@ -712,5 +757,5 @@ async def main():
         else:
             print("Something went wrong... not adding trade counter.")
 
-if __name__ == "__main__":
-    asyncio.run(main())
+# if __name__ == "__main__":
+#     asyncio.run(main())

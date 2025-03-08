@@ -22,9 +22,11 @@ from solders.transaction import Transaction
 from solders.account import Account
 from solders.rpc.responses import RpcResponseContext, GetAccountInfoResp
 
-
+from spl.token._layouts import MINT_LAYOUT
 from spl.token.instructions import (
     burn_checked,
+    close_account,
+    CloseAccountParams,
     get_associated_token_address,
     BurnCheckedParams,
 )
@@ -64,22 +66,22 @@ async def get_solana_balance(public_key: Pubkey) -> float:
     :return: Balance in SOL as a float.
     """
     async with AsyncClient(appconfig.RPC_URL_HELIUS) as client:
-            try:
-                # Fetch the balance (in lamports)
-                balance_response = await client.get_balance(public_key)
-                # Balance is returned in lamports (1 SOL = 10^9 lamports)
-                lamports = balance_response.value
-                sol_balance = lamports / 1e9
-                return sol_balance
-            except Exception as e:
-                print(f"Error fetching balance: {e.error_msg}")
-                return 0.0
+        try:
+            # Fetch the balance (in lamports)
+            balance_response = await client.get_balance(public_key)
+            # Balance is returned in lamports (1 SOL = 10^9 lamports)
+            lamports = balance_response.value
+            sol_balance = lamports / 1e9
+            return sol_balance
+        except Exception as e:
+            print(f"Error fetching balance: {e.error_msg}")
+            return 0.0
 
 
 def decode_pump_fun_token(token: str) -> Pubkey:
     """
     Decodes a 44-character token from pump.fun to retrieve its mint address.
-    
+
     :param token: 44-character token.
     :return: Token mint address (base58 encoded).
     """
@@ -139,7 +141,7 @@ def get_instructions_from_message(msg: Message):
             parsed_instructions.append(
                 {"field_id": idx, "possible_price_impact": price_impact}
             )
-                                                
+
             # Decode the instruction data if necessary (e.g., Base64 decoding)
             try:
                 decoded_data = base64.b64decode(data).decode("utf-8")
@@ -149,7 +151,7 @@ def get_instructions_from_message(msg: Message):
             # Check if priceImpactPct is in the decoded data
             if "priceImpactPct" in decoded_data:
                 print(f"Instruction {idx} contains priceImpactPct: {decoded_data}")
-    
+
     return parsed_instructions
 
 
@@ -165,7 +167,7 @@ def include_instruction(msg: MessageV0):
     compute_budget_ix = set_compute_unit_limit(1_000_000)  # Set compute unit limit to 1M
 
     # Step 2: Get a fresh recent ∫blockhash
-    client = Client(appconfig.RPC_URL)  # Assuming RpcClient is already imported and available
+    client = Client(appconfig.JITO_RPC_URL)  # Assuming RpcClient is already imported and available
     recent_blockhash = client.get_latest_blockhash().value.blockhash
 
     accountKeys = list(msg.account_keys)  # Convert to mutable list
@@ -234,14 +236,14 @@ def get_solana_price() -> float:
             price_data = response.json()
             price = price_data["solana"]["usd"]
             break
-        except Exception as e:
+        except Exception:
             counter += 1
             print("get_solana_price Error: Failed to fetch Solana price. retriying {} of {}".format(
                 counter,
                 retries
             ))
             time.sleep(counter)
-    
+
     return price
 
 
@@ -263,8 +265,7 @@ def get_token_mint_decimals(mint_address: str) -> int:
     response = client.get_account_info(mint_pubkey)
     if not response.value:
         raise ValueError(f"Mint account {mint_address} not found")
-    
-    from spl.token._layouts import MINT_LAYOUT, ACCOUNT_LAYOUT
+
     mint_data = MINT_LAYOUT.parse(response.value.data)
     decimals = mint_data.decimals
 
@@ -328,19 +329,18 @@ def get_token_metadata(token_address: str) -> dict:
 
         try:
             response = requests.post(
-                    url=appconfig.RPC_URL_HELIUS,
-                    json=data,
-                    headers={"Content-Type": "application/json"}
-                )
+                url=appconfig.RPC_URL_HELIUS,
+                json=data,
+                headers={"Content-Type": "application/json"}
+            )
             if response.status_code != 200:
                 counter += 1
                 print("get_metadata: Bad status code '{}' recevied for token {}. Retries {} of {}".format(
-                        response.status_code,
-                        token_address,
-                        counter,
-                        retries
-                    )
-                )
+                    response.status_code,
+                    token_address,
+                    counter,
+                    retries
+                ))
                 time.sleep(counter)
                 continue
 
@@ -362,14 +362,13 @@ def get_token_metadata(token_address: str) -> dict:
                 metadata["insufficient_data"] = True
             break
 
-        except Exception as e:
+        except Exception:
             counter += 1
             print("get_metadata: Error retrieving metadata for token {}. Retries {} of {}".format(
-                    token_address,
-                    counter,
-                    retries
-                )
-            )
+                token_address,
+                counter,
+                retries
+            ))
             time.sleep(counter)
 
     return metadata
@@ -458,98 +457,97 @@ async def detect_dust_token_accounts(
     min_token_value = 1
     account_samples = 5
     working_balance = 0
-    # Refactor this: remove this line of code and test as client is not being used
-    async with AsyncClient(appconfig.RPC_URL_HELIUS) as client:
-        try:
-            # TODO: implement token's black list (like USDC, etc)
-            token_blacklist = []
-            original_accounts = await get_token_accounts_by_owner(wallet_address=str(wallet_pubkey))
-            accounts = [
-                account for account in original_accounts 
-                if account["account"]["data"]["parsed"]["info"]["mint"] not in token_blacklist
-            ]
 
-            if not accounts:
-                return []
+    try:
+        # TODO: implement token's black list (like USDC, etc)
+        token_blacklist = []
+        original_accounts = await get_token_accounts_by_owner(wallet_address=str(wallet_pubkey))
+        accounts = [
+            account for account in original_accounts 
+            if account["account"]["data"]["parsed"]["info"]["mint"] not in token_blacklist
+        ]
+
+        if not accounts:
+            return []
+        
+        # Fetch the current Solana price
+        sol_price = get_solana_price()
+        if sol_price == 0:
+            return []
+
+        if do_balance_aproximation:
+            account_sample_list = accounts
+            if len(accounts) > account_samples:
+                my_list = list(range(len(accounts)))
+                # Generate X random positions
+                random_positions = random.sample(range(len(my_list)), account_samples)
+                # Get the 5 random values from the list
+                account_sample_list = [my_list[pos] for pos in random_positions]
+
+            sum_balance = 0
+            for index in account_sample_list:
+                associated_tokan_account = accounts[index]["pubkey"]
+                sum_balance += await get_solana_balance(public_key=Pubkey.from_string(associated_tokan_account))
+
+            working_balance = sum_balance / len(account_sample_list)
+
+        counter = 0
+        account_output = []
+        for account in accounts:
+            counter += 1
+
+            mint = account["account"]["data"]["parsed"]["info"]["mint"]
+            owner = account["account"]["data"]["parsed"]["info"]["owner"]
+            token_amount = account["account"]["data"]["parsed"]["info"]["tokenAmount"]["uiAmount"]
+            decimals = account["account"]["data"]["parsed"]["info"]["tokenAmount"]["decimals"]
+            associated_token_account = account["pubkey"]
+
+            metadata = get_token_metadata(token_address=mint)
+
+            token_price = metadata["price_info"]["price_per_token"]
+            token_value = token_price * token_amount
             
-            # Fetch the current Solana price
-            sol_price = get_solana_price()
-            if sol_price == 0:
-                return []
+            uri = metadata["uri"]
+            cdn_uri = metadata["cdn_uri"]
+            mime = metadata["mime"]
+            description = metadata["description"] if "description" in metadata else ""
+            name = metadata["name"].strip()
+            symbol = metadata["symbol"].strip()
+            authority = metadata["authority"]
+            supply =  metadata["supply"]
+            token_program = metadata["token_program"]
+            insufficient_data = metadata["insufficient_data"]  # Non listed tokens returns a zero price
 
-            if do_balance_aproximation:
-                account_sample_list = accounts
-                if len(accounts) > account_samples:
-                    my_list = list(range(len(accounts)))
-                    # Generate X random positions
-                    random_positions = random.sample(range(len(my_list)), account_samples)
-                    # Get the 5 random values from the list
-                    account_sample_list = [my_list[pos] for pos in random_positions]
+            account_output.append(
+                {
+                    "token_mint": mint,
+                    "associated_token_account": associated_token_account,
+                    "owner": owner,
+                    "token_amount": token_amount,
+                    "token_price": token_price,
+                    "token_value": token_value,
+                    "decimals": decimals,
+                    "sol_balance": working_balance,
+                    "sol_balance_usd": working_balance * sol_price,
+                    "is_dust": token_value < min_token_value,
+                    "uri": uri,
+                    "cdn_uri": cdn_uri,
+                    "mime": mime,
+                    "description": description,
+                    "name": name,
+                    "symbol": symbol,
+                    "authority": authority,
+                    "supply": supply,
+                    "token_program": token_program,
+                    "insufficient_data": insufficient_data,
+                }
+            )
 
-                sum_balance = 0
-                for index in account_sample_list:
-                    associated_tokan_account = accounts[index]["pubkey"]
-                    sum_balance += await get_solana_balance(public_key=Pubkey.from_string(associated_tokan_account))
+        return account_output
 
-                working_balance = sum_balance / len(account_sample_list)
-
-            counter = 0
-            account_output = []
-            for account in accounts:
-                counter +=1
-
-                mint = account["account"]["data"]["parsed"]["info"]["mint"]
-                owner = account["account"]["data"]["parsed"]["info"]["owner"]
-                token_amount = account["account"]["data"]["parsed"]["info"]["tokenAmount"]["uiAmount"]
-                decimals = account["account"]["data"]["parsed"]["info"]["tokenAmount"]["decimals"]
-                associated_token_account = account["pubkey"]
-
-                metadata = get_token_metadata(token_address=mint)
-
-                token_price = metadata["price_info"]["price_per_token"]
-                token_value = token_price * token_amount
-                
-                uri = metadata["uri"]
-                cdn_uri = metadata["cdn_uri"]
-                mime = metadata["mime"]
-                description = metadata["description"] if "description" in metadata else ""
-                name = metadata["name"].strip()
-                symbol = metadata["symbol"].strip()
-                authority = metadata["authority"]
-                supply =  metadata["supply"]
-                token_program = metadata["token_program"]
-                insufficient_data = metadata["insufficient_data"]  # Non listed tokens returns a zero price
-
-                account_output.append(
-                    {
-                        "token_mint": mint,
-                        "associated_token_account": associated_token_account,
-                        "owner": owner,
-                        "token_amount": token_amount,
-                        "token_price": token_price,
-                        "token_value": token_value,
-                        "decimals": decimals,
-                        "sol_balance": working_balance,
-                        "sol_balance_usd": working_balance * sol_price,
-                        "is_dust": token_value < min_token_value,
-                        "uri": uri,
-                        "cdn_uri": cdn_uri,
-                        "mime": mime,
-                        "description": description,
-                        "name": name,
-                        "symbol": symbol,
-                        "authority": authority,
-                        "supply": supply,
-                        "token_program": token_program,
-                        "insufficient_data": insufficient_data,
-                    }
-                )
-
-            return account_output
-
-        except Exception as e:
-            print(f"Error fetching token '{token_mint_address}' balance: {e}")
-            return account_output
+    except Exception as e:
+        print(f"Error fetching token '{token_mint_address}' balance: {e}")
+        return account_output
 
 
 async def burn_associated_token_account(
@@ -629,15 +627,15 @@ async def burn_associated_token_account(
             # Create and sign transaction
             blockhash = await client.get_latest_blockhash()
             recent_blockhash = blockhash.value.blockhash
-    
+
             msg = Message(
                 instructions=[set_compute_unit_price(1_000), burn_ix],
                 payer=keypair.pubkey()
             )
             tx_signature = await client.send_transaction(
-                    txn=Transaction([keypair], msg, recent_blockhash),
-                    opts=TxOpts(preflight_commitment=Confirmed),
-                )
+                txn=Transaction([keypair], msg, recent_blockhash),
+                opts=TxOpts(preflight_commitment=Confirmed),
+            )
             current_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
             print("Trade->{} Transaction: https://solscan.io/tx/{} at {}".format(
                 "Burn",
@@ -647,32 +645,12 @@ async def burn_associated_token_account(
             await client.confirm_transaction(tx_signature.value, commitment="confirmed")
             print("Transaction confirmed")
 
-            # SECOND WAY: POSTING TRANSACTION 
-            # config = RpcSendTransactionConfig(
-            #     preflight_commitment=CommitmentLevel.Confirmed
-            # )
-            # tx = SendLegacyTransaction(tx=Transaction([keypair], msg, recent_blockhash),config=config)
-            # response = requests.post(
-            #         url=appconfig.RPC_URL_HELIUS,
-            #         headers={"Content-Type": "application/json"},
-            #         data=tx.to_json()
-            #     )
-            # txSignature = response.json()['result']
-            # current_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
-            # print("Trade->{} Transaction: https://solscan.io/tx/{} at {}".format(
-            #     "Burn",
-            #     txSignature,
-            #     current_time
-            # ))
-
         except Exception as e:
             print("burn_associated_token_account Error: {}".format(e))
 
     return txn
 
 
-from solders.pubkey import Pubkey
-from spl.token.instructions import close_account, CloseAccountParams
 async def burn_and_close_associated_token_account(
     associated_token_account: Pubkey,
     token_mint: Pubkey,
@@ -785,7 +763,7 @@ def generate_vanity_wallet(prefix: str, key_sensitive: bool = False) -> Keypair:
         # Generate a new keypair
         keypair = Keypair()
         public_key = str(keypair.pubkey())
-        
+
         # Check if the public key starts with the desired prefix
         validator = public_key.lower().startswith(prefix.lower()) if not key_sensitive else public_key.startswith(prefix)
 
@@ -795,21 +773,20 @@ def generate_vanity_wallet(prefix: str, key_sensitive: bool = False) -> Keypair:
             pk = base58.b58encode(bytes(keypair)).decode()
             print("PK: {}".format(pk))
             print("finishing generate_vanity_wallet at {} after {} iterations".format(
-                    stop_time,
-                    counter
-                )
-            )
+                stop_time,
+                counter
+            ))
             return keypair
 
 
 def get_account_information(account: Pubkey) -> GetAccountInfoResp:
     """
     Fetch account information from Solana RPC and return it as a GetAccountInfoResp object.
-    
+
     Args:
         rpc_url (str): The Solana RPC URL.
         account (str): The account public key in string format.
-    
+
     Returns:
         GetAccountInfoResp: The account information as a GetAccountInfoResp object.
     """
@@ -894,7 +871,6 @@ def get_account_information(account: Pubkey) -> GetAccountInfoResp:
     return account_info_resp
 
 
-
 async def test():
     prefix = "Ghost"
 
@@ -906,7 +882,7 @@ async def test():
         return
 
     solana_address = "4ajMNhqWCeDVJtddbNhD3ss5N6CFZ37nV9Mg7StvBHdb"
-    #solana_address = "onK5ruraCpbvjzWjqvJ3uBXgXapNX6ddB799qsNipeR"
+    # solana_address = "onK5ruraCpbvjzWjqvJ3uBXgXapNX6ddB799qsNipeR"
     token_address = "FFqR2bk3ULB1WuYECRbooxPpbYvvZBp3z9Uc94Pqpump"
     token_address = "7AeGaYhyhvDRdPkH7Wg7vup8D1SjNRZc1fXLZNcYpump"
 
@@ -926,7 +902,7 @@ async def test():
         associated_token_account=Pubkey.from_string(associated_token_account),
         token_mint=Pubkey.from_string(token_address),
         keypair=Keypair.from_base58_string(appconfig.PRIVKEY),
-        decimals=6  
+        decimals=6
     )
 
     account = "DnJaA2C7Ak93HGvACoCQ9ULacYuq7BuiYMWtWePekzJH"
