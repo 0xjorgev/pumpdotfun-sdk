@@ -26,7 +26,6 @@ from bot.libs.criterias import (
 from bot.libs import criterias as criteria_functions
 from bot.libs.utils import (
     get_solana_balance,
-    get_own_token_balance,
     Trader,
     TxType,
     Celebrimborg,
@@ -37,6 +36,7 @@ from bot.domain.redis_db import RedisDB
 
 from datetime import datetime, timedelta
 from enum import Enum
+from solders.pubkey import Pubkey
 from solders.transaction import VersionedTransaction
 from solders.keypair import Keypair
 from solders.commitment_config import CommitmentLevel
@@ -228,6 +228,7 @@ class TradeRoadmap:
 # Patch the running event loop. Required to get wallet's balance
 nest_asyncio.apply()
 
+
 class Pump:
     sniping_token_list = []
 
@@ -248,7 +249,7 @@ class Pump:
         self.tokens_to_be_traded = appconfig.TRADING_TOKENS_AT_THE_SAME_TIME
         self.trading_amount = amount
         self.trading_sell_amount = amount * (1 + target)    # TODO: apply this when we have the Bounding Courve
-        
+
         self.keypair = Keypair.from_base58_string(appconfig.PRIVKEY)
         self.ssl_context = ssl.create_default_context(cafile=certifi.where())
         self.balance = self.get_balance(public_key=self.keypair.pubkey())
@@ -258,7 +259,6 @@ class Pump:
         self.stop_app = False
 
         self.trade_fees = appconfig.FEES
-
 
     def start_scanner(self):
         self.scanner_start_time = datetime.now()
@@ -294,7 +294,6 @@ class Pump:
             lower_fees if lower_fees >= appconfig.FEES else appconfig.FEES
         ))
         self.trade_fees = lower_fees if lower_fees >= appconfig.FEES else appconfig.FEES
-        
 
     def reset_fees(self):
         self.trade_fees = appconfig.FEES
@@ -370,7 +369,7 @@ class Pump:
                         roadmap_name = steps[step_index]["name"]
                         if step_index == 0:
                             print("subscribe -> restarting roadmap '{}'\n".format(roadmap_name))
-                            
+
                         print("Step {}: {}".format(
                             step_index,
                             steps[step_index]["name"]
@@ -383,7 +382,7 @@ class Pump:
                                 # Applying starting criterias
                                 if "scanner_activity_time" in step["criteria"]:
                                     self.scanner_activity_time = step["criteria"]["scanner_activity_time"]
-                                
+
                                 start_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
                                 print("Start at {} ".format(
                                     start_time
@@ -757,18 +756,17 @@ class Pump:
             except Exception as e:
                 print(f"Unexpected error: {e}. Exiting program abruptly.")
                 break  # Exit on non-recoverable errors
-    
 
     def new_token_suscription(self, msg: str, step: Dict, redisdb=RedisDB) -> bool:
 
         move_to_next_step = False
-    
+
         if self.scanner_start_time is None:
             self.start_scanner()
 
         # Check if scanner needs to be torned off. scanner_activity_time == -1 -> runs forever.
         if (datetime.now() - self.scanner_start_time).total_seconds() >= self.scanner_activity_time and \
-            self.scanner_activity_time != -1:
+                self.scanner_activity_time != -1:
             move_to_next_step = True
             return move_to_next_step
 
@@ -913,7 +911,7 @@ class Pump:
                 break
 
         return is_valid, exit_criteria
-    
+
     def prepare_data(
         self,
         keypair: Keypair,
@@ -981,10 +979,9 @@ class Pump:
             if appconfig.APPMODE not in [AppMode.real.value]:
                 current_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
                 print("simulate trade -> {} MODE: returning dummy transaction at {}".format(
-                        appconfig.APPMODE,
-                        current_time
-                    )
-                )
+                    appconfig.APPMODE,
+                    current_time
+                ))
                 txSignature = "txn_dummy_{}".format(txtype.value)
                 break
 
@@ -1007,7 +1004,7 @@ class Pump:
                             response
                         ))
                         break
-                    
+
                     retries += 1
 
                     print("Trade->{} Error: {} returned a status code {}. Retrying again {} times. Response: {}".format(
@@ -1037,7 +1034,7 @@ class Pump:
                 ))
                 time.sleep(appconfig.RETRYING_SECONDS)
                 continue
-            
+
             vst = VersionedTransaction.from_bytes(response.content)
             msg = vst.message
 
@@ -1054,7 +1051,7 @@ class Pump:
 
             try:
                 response = requests.post(
-                    url=appconfig.RPC_URL,
+                    url=appconfig.JITO_RPC_URL,
                     headers={"Content-Type": "application/json"},
                     data=txPayload.to_json()
                 )
@@ -1068,9 +1065,8 @@ class Pump:
                     current_time
                 ))
                 break
-                
 
-            except Exception as e:
+            except Exception:
                 retries += 1
                 if txtype.value == TxType.buy.value:
                     print("Trade->{} Transaction failed. Exiting trade function. Error: {}".format(
@@ -1083,7 +1079,7 @@ class Pump:
                     retries,
                     response.json()["error"]["message"]
                 ))
-                
+
                 time.sleep(appconfig.RETRYING_SECONDS)
 
         return txSignature
@@ -1120,7 +1116,6 @@ class Pump:
 
                 def get_tokens(message):
                     # Constants
-                    from solders.pubkey import Pubkey
                     TOKEN_PROGRAM_ID = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
                     TRANSFER_INSTRUCTION_INDEX = 3  # Index for "transfer" instruction in SPL Token Program.
 
@@ -1137,8 +1132,8 @@ class Pump:
 
                 for index, encodedTransaction in enumerate(encodedTransactions):
                     msg = VersionedTransaction.from_bytes(
-                            base58.b58decode(encodedTransaction)
-                        ).message
+                        base58.b58decode(encodedTransaction)
+                    ).message
                     get_tokens(message=msg)
                     signedTx = VersionedTransaction(
                         msg,
@@ -1148,7 +1143,7 @@ class Pump:
                     txSignatures.append(str(signedTx.signatures[0]))
 
                 jito_response = requests.post(
-                    appconfig.RPC_URL + "/bundles",
+                    appconfig.JITO_RPC_URL + "/bundles",
                     headers={"Content-Type": "application/json"},
                     json={
                         "jsonrpc": "2.0",
@@ -1167,25 +1162,9 @@ class Pump:
 
         except Exception as e:
             print(e)
-            
+
         return txSignatures
 
-
-def study():
-    from solders.pubkey import Pubkey
-    from solana.rpc.api import Client
-    import struct
-    program_id = Pubkey.from_string("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P")
-    SOLANA_RPC_URL = "https://api.mainnet-beta.solana.com"
-    client = Client(SOLANA_RPC_URL)
-    
-
-    # Token Mint IDs
-    token_a = Pubkey.from_string("CXXsWzhbzNZLDosyebxqMtoJtnxYLRg4hTxudgoApump")
-    
-    seeds = [bytes(token_a)]
-    pool_address, _ = Pubkey.find_program_address(seeds, program_id)
-    print("Liquidity Pool Address:", pool_address)
 
 def test():
     messages = [
@@ -1394,5 +1373,3 @@ async def subscribe_to_trades():
 
 # Run the async function
 #asyncio.run(subscribe_to_trades())
-
-#study()
