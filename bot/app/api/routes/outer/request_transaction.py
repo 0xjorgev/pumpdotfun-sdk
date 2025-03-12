@@ -23,6 +23,8 @@ async def request_close_ata_transaction(
         owner = body.owner
         fee = body.fee
         tokens = body.tokens
+        # TODO: implement partner fee and pubkey as optional
+
         if not tokens:
             instructions = Quote(
                 quote=None
@@ -42,14 +44,14 @@ async def request_close_ata_transaction(
             ))
             fee = appconfig.GHOSTFUNDS_FEES_PERCENTAGES[1]
 
-        transaction = await close_ata_transaction(
+        transactions = await close_ata_transaction(
             owner=Pubkey.from_string(owner),
             tokens=tokens,
             fee=fee
         )
 
         quote = Quote(
-            quote=transaction
+            quote=transactions
         )
         return quote
     except EntityNotFoundException as e:
