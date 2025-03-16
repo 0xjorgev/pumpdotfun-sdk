@@ -623,7 +623,7 @@ async def close_ata_transaction(
             # Each chunk will become a transaction
             burn_close_instructions = []
             chunk = []
-            max_ixs_per_transaction = 5
+            max_ixs_per_transaction = appconfig.BACKEND_MAX_INSTRUCTIONS_PER_TRANSACTION
             ghost_ixs = 4
             partners_fee_ixs = 0
             max_ixs_per_chunk = max_ixs_per_transaction - ghost_ixs - partners_fee_ixs

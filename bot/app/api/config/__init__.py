@@ -31,7 +31,7 @@ class AuthConfig:
     }
     GHOSTFUNDS_FIX_FEES_RECEIVER = "GhoStvfwEx5FYEX7jMEpsu6R13xJFJdTLs4BxEpB9qxQ"
     GHOSTFUNDS_VARIABLE_FEES_RECEIVER = "Ghost5UYkXcgLdja6Uhyac3gTnuefrx7TuSFat5JUVdW"
-    BACKEND_MAX_INSTRUCTIONS = 10
+    BACKEND_MAX_INSTRUCTIONS_PER_TRANSACTION = 24
 
     MIN_TOKEN_VALUE = 0.0001  # Min value of a token to not be considered dust
     MAX_RETRIEVABLE_ACCOUNTS = 1100  # Safety. To avoid api server to crash

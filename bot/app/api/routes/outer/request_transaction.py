@@ -31,8 +31,8 @@ async def request_close_ata_transaction(
             )
             return instructions
 
-        if len(tokens) > appconfig.BACKEND_MAX_INSTRUCTIONS:
-            raise TooManyInstructionsException(detail="Too many instructions")
+        if len(tokens) > appconfig.MAX_RETRIEVABLE_ACCOUNTS:
+            raise TooManyInstructionsException(detail=appconfig.MAX_RETRIEVABLE_ACCOUNTS_MESSAGE)
 
         last_fee = list(appconfig.GHOSTFUNDS_FEES_PERCENTAGES.values())[-1]
         if fee not in appconfig.GHOSTFUNDS_FEES_PERCENTAGES.values() or fee < last_fee:
