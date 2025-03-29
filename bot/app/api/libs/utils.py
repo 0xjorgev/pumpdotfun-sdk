@@ -602,14 +602,27 @@ async def close_ata_transaction(
     owner: Pubkey,
     tokens: list[dict],
     fee: float,
+    referrals: list[dict],
     encode_base64: bool = True
 ) -> list[str]:
     """
-    Burs all tokens from the associated token account
-    :param associated_token_account[Pubkey]: associated token account
-    :param token_mint[Pubkey]: tokens to get burned
-    :param decimals[int]: The token's decimals (default 9 for SOL).
-    :return: list[str] base64 transaction object by default.
+    Closes an Associated Token Account (ATA) transaction for a given owner.
+
+    Args:
+        owner (Pubkey): The public key of the account owner.
+        tokens (list of dict): A list of dictionaries, each containing details about a token involved
+            in the transaction.
+        fee (float): The transaction fee to be applied.
+        referrals (list of dict): A list of dictionaries specifying commission for referrals.
+        encode_base64 (bool, optional): Whether to encode the transaction in base64 format. Defaults
+            to True.
+
+    Returns:
+        list of str: A list of transaction signatures as strings.
+
+    Raises:
+        ValueError: If any of the input parameters are invalid.
+        TransactionError: If the transaction fails to process.
     """
     txn = None
     txns = []
@@ -625,8 +638,16 @@ async def close_ata_transaction(
             chunk = []
             max_ixs_per_transaction = appconfig.BACKEND_MAX_INSTRUCTIONS_PER_TRANSACTION
             ghost_ixs = 4
-            partners_fee_ixs = 0
+            partners_fee_ixs = len(referrals)
             max_ixs_per_chunk = max_ixs_per_transaction - ghost_ixs - partners_fee_ixs
+
+            # Check if we're dealing with an Corporate referral if claimFunds is True
+            fund_claimer = [referral["pubKey"] for referral in referrals if referral["claimFunds"]]
+            if fund_claimer:
+                # The Corporate referral will receive all funds
+                fund_claimer = Pubkey.from_string(fund_claimer[0])
+            else:
+                fund_claimer = owner
 
             burn_ix_counter = 0
             close_ix_counter = 0
@@ -679,7 +700,7 @@ async def close_ata_transaction(
                     CloseAccountParams(
                         program_id=TOKEN_PROGRAM_ID,
                         account=associated_token_account,
-                        dest=owner,
+                        dest=fund_claimer,
                         owner=owner
                     )
                 )
@@ -723,12 +744,12 @@ async def close_ata_transaction(
                 # Variable fee
                 # Summing all ATAs balances to calculate variable fee
 
-                # TODO: include partners fee instructions
                 fee_ix_list = get_fee_instructions(
                     fee=fee,
                     balance=chunk["balance"],
                     owner=owner,
-                    atas=chunk["closed"]
+                    atas=chunk["closed"],
+                    referrals=referrals
                 )
                 # Package all instructions as hex values from bytes into a single list
                 instructions = [
@@ -769,9 +790,30 @@ def get_fee_instructions(
     fee: float,
     balance: float,
     owner: Pubkey,
-    atas: int
+    atas: int,
+    referrals: list[dict]
 ) -> list[Instruction]:
-    # Fix fee: we're charing a base fix fee for every ATA we're burning and closing.
+    """_summary_
+
+    Args:
+        fee (float): _description_
+        balance (float): _description_
+        owner (Pubkey): _description_
+        atas (int): _description_
+        referrals (list[dict]): example
+        [
+            {
+                "slug": "saul",
+                "commission": 0.2,
+                "pubKey": "ECcPyowqkvKPnYTH4fnpE1sULKScbRAbw6UsU3w5Xgx",
+                "claimFunds": false
+            }
+        ]
+
+    Returns:
+        list[Instruction]: _description_
+    """
+    # Fix fee: we're charging a base fix fee for every ATA we're burning and closing.
     lamports_to_charge = int(appconfig.GHOSTFUNDS_FIX_FEES * atas * 10**9)  # Convert SOL to lamports
     fix_fees_params = TransferParams(
         from_pubkey=owner,
@@ -779,15 +821,40 @@ def get_fee_instructions(
         lamports=lamports_to_charge
     )
     fix_fees_ix = transfer(params=fix_fees_params)
-    # Variable fee
-    lamports_to_charge = int(balance * fee * 10**9)                  # Convert SOL to lamports
+    # Getting possible commisions to referrals
+    all_commissions = 0
+    if referrals:
+        # Summing all referral commisions
+        all_commissions = sum(int(referral["commission"] * 10**9) for referral in referrals) / 10**9
+
+    # Variable fee: discounting possible referral commissions
+    lamports_to_charge = int(balance * fee * (1 - all_commissions) * 10**9)  # Convert SOL to lamports
     variable_fees_params = TransferParams(
         from_pubkey=owner,
         to_pubkey=Pubkey.from_string(appconfig.GHOSTFUNDS_VARIABLE_FEES_RECEIVER),
         lamports=lamports_to_charge
     )
     variable_fees_ix = transfer(params=variable_fees_params)
-    return [fix_fees_ix, variable_fees_ix]
+    fees = [fix_fees_ix, variable_fees_ix]
+
+    # Adding transfer for referrals
+    referrals_commissions = []
+    if referrals:
+        for referral in referrals:
+            lamports = int(balance * fee * referral["commission"] * 10**9)
+            # No transfer fee if commission is 0
+            if lamports == 0:
+                continue
+
+            fees_params = TransferParams(
+                from_pubkey=owner,
+                to_pubkey=Pubkey.from_string(referral["pubKey"]),
+                lamports=lamports
+            )
+            referrals_commissions.append(transfer(params=fees_params))
+
+    fees.extend(referrals_commissions)
+    return fees
 
 
 def calculate_compute_units(closed: int, burned: int):
