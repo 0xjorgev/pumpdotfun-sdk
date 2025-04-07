@@ -167,6 +167,7 @@ def get_token_metadata(token_address: str) -> dict:
     counter = 0
     while True:
         if counter >= retries:
+            metadata = {}
             break
 
         try:
@@ -187,11 +188,13 @@ def get_token_metadata(token_address: str) -> dict:
                 continue
 
             content = response.json()
+
             file_dict = {'uri': None, 'cdn_uri': None, 'mime': None}
             files = content["result"]["content"]["files"]
             metadata.update(files[0] if files else file_dict)
             metadata.update(content["result"]["content"]["metadata"])
-            metadata["authority"] = content["result"]["authorities"][0]["address"]
+            authority = content["result"]["authorities"][0]["address"] if content["result"]["authorities"] else ""
+            metadata["authority"] = authority
             metadata["supply"] = content["result"]["token_info"]["supply"]
             metadata["decimals"] = content["result"]["token_info"]["decimals"]
             metadata["token_program"] = content["result"]["token_info"]["token_program"]
@@ -206,12 +209,13 @@ def get_token_metadata(token_address: str) -> dict:
                 metadata["insufficient_data"] = True
             break
 
-        except Exception:
+        except Exception as e:
             counter += 1
-            logging.error("get_metadata: Error retrieving metadata for token {}. Retries {} of {}".format(
+            logging.error("get_metadata: Error retrieving metadata for token {}. Retries {} of {}. Exception: {}".format(
                 token_address,
                 counter,
-                retries
+                retries,
+                e
             ))
             time.sleep(counter)
 
@@ -438,20 +442,25 @@ async def detect_dust_token_accounts(
             associated_token_account = account["pubkey"]
 
             metadata = get_token_metadata(token_address=mint)
+            if not metadata:
+                continue
+
+            if "name" not in metadata:
+                continue
 
             token_price = metadata["price_info"]["price_per_token"]
             token_value = token_price * token_amount
 
-            uri = metadata["uri"]
-            cdn_uri = metadata["cdn_uri"]
-            mime = metadata["mime"]
-            description = metadata["description"] if "description" in metadata else ""
-            name = metadata["name"].strip()
-            symbol = metadata["symbol"].strip()
-            authority = metadata["authority"]
-            supply = metadata["supply"]
-            token_program = metadata["token_program"]
-            insufficient_data = metadata["insufficient_data"]  # Non listed tokens returns a zero price
+            uri = metadata.get("uri", "")
+            cdn_uri = metadata.get("cdn_uri")
+            mime = metadata.get("mime")
+            description = metadata.get("description", "")
+            name = metadata.get("name", "").strip()
+            symbol = metadata.get("symbol", "").strip()
+            authority = metadata.get("authority", "")
+            supply = metadata.get("supply", "")
+            token_program = metadata.get("token_program", "")
+            insufficient_data = metadata.get("insufficient_data", "")  # Non listed tokens returns a zero price
 
             account_output.append(
                 {
