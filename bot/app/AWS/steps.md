@@ -73,7 +73,11 @@ docker tag ghostfunds-backend-fastapi:latest 237733826785.dkr.ecr.eu-west-1.amaz
 docker push 237733826785.dkr.ecr.eu-west-1.amazonaws.com/ghostfunds-backend-fastapi:latest
 ## Updaing Lambda function docker image
 aws lambda update-function-code \
+  --function-name arn:aws:lambda:eu-west-1:237733826785:function:ghostfunds-backend-fastapi-docker \
+  --image-uri 237733826785.dkr.ecr.eu-west-1.amazonaws.com/ghostfunds-backend-fastapi:latest --region eu-west-1 --output json --no-cli-pager
+## Fetch update status
+aws lambda get-function-configuration \
   --function-name ghostfunds-backend-fastapi-docker \
-  --image-uri 237733826785.dkr.ecr.eu-west-1.amazonaws.com/ghostfunds-backend-fastapi:latest
-
-aws lambda get-function-configuration --function-name ghostfunds-backend-fastapi-docker
+  --query '{LastModified: LastModified, State: State, LastUpdateStatus: LastUpdateStatus}' \
+  --output json \
+  --no-cli-pager
