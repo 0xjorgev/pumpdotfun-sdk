@@ -61,8 +61,8 @@ class AuthConfig:
     REDIS_PORT = os.environ.get("REDIS_PORT", "6379")
 
     # MIDDLEWARE
-    MIDDLEWARE_BASE_URL_STRAPI = "http://localhost:1337/api/"
-    # MIDDLEWARE_BASE_URL_STRAPI = "https://celebrinborg-86928ad1f22d.herokuapp.com/api/"
+    # MIDDLEWARE_BASE_URL_STRAPI = "http://localhost:1337/api/"
+    MIDDLEWARE_BASE_URL_STRAPI = "https://celebrinborg-86928ad1f22d.herokuapp.com/api/"
 
 
 appconfig: AuthConfig = AuthConfig()

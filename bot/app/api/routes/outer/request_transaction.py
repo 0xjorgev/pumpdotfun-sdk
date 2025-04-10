@@ -3,7 +3,7 @@ import logging
 
 from solders.pubkey import Pubkey
 
-from api.adapters.strapi_adapter import Middelware
+from api.adapters.strapi_adapter import Middleware
 from api.config import appconfig
 from api.handlers.exceptions import EntityNotFoundException, TooManyInstructionsException, ErrorProcessingData
 from api.models.outer_models import Quote, RequestTransaction
@@ -46,7 +46,7 @@ async def request_close_ata_transaction(
             fee = appconfig.GHOSTFUNDS_FEES_PERCENTAGES[1]
 
         # Retrieving possible referrals from middleware
-        middleware = Middelware()
+        middleware = Middleware()
 
         referrals = middleware.get_remote_commissions(pubkey=owner)
 

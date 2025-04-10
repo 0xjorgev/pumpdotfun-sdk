@@ -5,13 +5,13 @@ from typing import List
 from api.config import appconfig
 
 
-class Middelware:
+class Middleware:
     def __init__(self):
         self.base_url = appconfig.MIDDLEWARE_BASE_URL_STRAPI
         self.referral_commissions_endpoint = "referral-commissions/"
 
     def get_remote_commissions(self, pubkey: str) -> List:
-        referrrals = []
+        referrals = []
         try:
             response = requests.get(
                 url="{}{}{}".format(
@@ -22,7 +22,7 @@ class Middelware:
                 headers={"Content-Type": "application/json"}
             )
             response.raise_for_status()
-            referrrals = response.json()
+            referrals = response.json()
 
         except Exception as e:
             logging.error(
@@ -34,4 +34,4 @@ class Middelware:
                 )
             )
 
-        return referrrals
+        return referrals
