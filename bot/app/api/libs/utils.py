@@ -662,6 +662,14 @@ async def close_ata_transaction(
             close_ix_counter = 0
             token_balance_sum = 0
             for token in tokens:
+                # Business logic validation: discard tokens with value for being closed and burned.
+                if not token.is_dust:
+                    logging.warning("wallet {}: token {} is marked as not being 'is_dust'. Bypassing this to preserv its value".format(
+                        str(owner),
+                        token.token_mint
+                    ))
+                    continue
+
                 associated_token_account = get_associated_token_address(
                     owner=owner,
                     mint=Pubkey.from_string(token.token_mint)

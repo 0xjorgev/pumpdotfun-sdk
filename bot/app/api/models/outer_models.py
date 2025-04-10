@@ -132,6 +132,9 @@ class RequestTransactionToken(BaseModel):
     token_amount_lamports: int = Field(
         ..., description='Token amount in lamports'
     )
+    is_dust: bool = Field(
+        False, description='States if the token is suitable for being closed and burned'
+    )
 
 
 class RequestTransaction(BaseModel):
