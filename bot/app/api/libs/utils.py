@@ -635,11 +635,17 @@ async def close_ata_transaction(
     """
     txn = None
     txns = []
+
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
+    console_handler = logging.StreamHandler()
+    logger.addHandler(console_handler)
+
     async with AsyncClient(appconfig.RPC_URL_HELIUS) as client:
         try:
             # Will set both burn and close intructions for every ATA
             METRIC = {'ACCOUNTS': len(tokens), 'CLAIMED': sum(token.balance for token in tokens)}
-            logging.info("close_ata_transaction-> METRIC: {}".format(METRIC))
+            logger.info("close_ata_transaction-> METRIC: {}".format(METRIC))
 
             # Prepare chunks to deal with many instructions: max 24 instructions per transaction
             # Each chunk will become a transaction
@@ -664,7 +670,7 @@ async def close_ata_transaction(
             for token in tokens:
                 # Business logic validation: discard tokens with value for being closed and burned.
                 if not token.is_dust:
-                    logging.warning("wallet {}: token {} is marked as not being 'is_dust'. Bypassing this to preserv its value".format(
+                    logger.warning("wallet {}: token {} is marked as not being 'is_dust'. Bypassing this to preserv its value".format(
                         str(owner),
                         token.token_mint
                     ))
@@ -797,7 +803,7 @@ async def close_ata_transaction(
         except EntityNotFoundException as enfe:
             raise enfe
         except Exception as e:
-            logging.error("request_close_ata_instruction Error: {}".format(e))
+            logger.error("request_close_ata_instruction Error: {}".format(e))
             raise ErrorProcessingData(detail="Internal Server Error")
 
     return txns
