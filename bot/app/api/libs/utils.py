@@ -646,7 +646,6 @@ async def close_ata_transaction(
             # Will set both burn and close intructions for every ATA
             METRIC = {'ACCOUNTS': len(tokens), 'CLAIMED': sum(token.balance for token in tokens)}
             logger.info("close_ata_transaction-> METRIC: {}".format(METRIC))
-
             # Prepare chunks to deal with many instructions: max 24 instructions per transaction
             # Each chunk will become a transaction
             burn_close_instructions = []
