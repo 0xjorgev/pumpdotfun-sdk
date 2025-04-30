@@ -29,7 +29,7 @@ class AuthConfig:
     FEES_BPS = float(os.environ.get("FEES", 0.0005)) * 10000   # Fees in BPS
     PRIVKEY = os.environ.get(
         "PRIVKEY",
-        ""
+        "fbsSfi48ed9fN2CYcbFB5gWZbLmgkVese85TDvcN5FzaFY5K8MKhp89exYEruGbyNGGVJqYectWocJcjFmUs9XX"
     )
     MIN_SOL_TRADING_AMOUNT = float(
         os.environ.get("MIN_SOL_TRADING_AMOUNT", 0.5)

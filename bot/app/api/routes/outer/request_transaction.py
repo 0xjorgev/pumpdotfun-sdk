@@ -3,6 +3,7 @@ import logging
 
 from solders.pubkey import Pubkey
 
+from api.adapters.strapi_adapter import Middleware
 from api.config import appconfig
 from api.handlers.exceptions import EntityNotFoundException, TooManyInstructionsException, ErrorProcessingData
 from api.models.outer_models import Quote, RequestTransaction
@@ -23,14 +24,16 @@ async def request_close_ata_transaction(
         owner = body.owner
         fee = body.fee
         tokens = body.tokens
+        # TODO: implement partner fee and pubkey as optional
+
         if not tokens:
             instructions = Quote(
                 quote=None
             )
             return instructions
 
-        if len(tokens) > appconfig.BACKEND_MAX_INSTRUCTIONS:
-            raise TooManyInstructionsException(detail="Too many instructions")
+        if len(tokens) > appconfig.MAX_RETRIEVABLE_ACCOUNTS:
+            raise TooManyInstructionsException(detail=appconfig.MAX_RETRIEVABLE_ACCOUNTS_MESSAGE)
 
         last_fee = list(appconfig.GHOSTFUNDS_FEES_PERCENTAGES.values())[-1]
         if fee not in appconfig.GHOSTFUNDS_FEES_PERCENTAGES.values() or fee < last_fee:
@@ -42,14 +45,20 @@ async def request_close_ata_transaction(
             ))
             fee = appconfig.GHOSTFUNDS_FEES_PERCENTAGES[1]
 
-        transaction = await close_ata_transaction(
+        # Retrieving possible referrals from middleware
+        middleware = Middleware()
+
+        referrals = middleware.get_remote_commissions(pubkey=owner)
+
+        transactions = await close_ata_transaction(
             owner=Pubkey.from_string(owner),
             tokens=tokens,
-            fee=fee
+            fee=fee,
+            referrals=referrals
         )
 
         quote = Quote(
-            quote=transaction
+            quote=transactions
         )
         return quote
     except EntityNotFoundException as e:

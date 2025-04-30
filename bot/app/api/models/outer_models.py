@@ -132,6 +132,9 @@ class RequestTransactionToken(BaseModel):
     token_amount_lamports: int = Field(
         ..., description='Token amount in lamports'
     )
+    is_dust: bool = Field(
+        ..., description='States if the token is suitable for being closed and burned'
+    )
 
 
 class RequestTransaction(BaseModel):
@@ -154,8 +157,8 @@ class RequestTransaction(BaseModel):
 
 
 class Quote(BaseModel):
-    quote: Optional[str] = Field(
-        None, description='A base64-encoded string representing the quote.'
+    quote: List[dict] = Field(
+        None, description='A list of base64-encoded strings representing the transactions.'
     )
 
 

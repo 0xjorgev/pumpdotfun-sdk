@@ -31,9 +31,9 @@ class AuthConfig:
     }
     GHOSTFUNDS_FIX_FEES_RECEIVER = "GhoStvfwEx5FYEX7jMEpsu6R13xJFJdTLs4BxEpB9qxQ"
     GHOSTFUNDS_VARIABLE_FEES_RECEIVER = "Ghost5UYkXcgLdja6Uhyac3gTnuefrx7TuSFat5JUVdW"
-    BACKEND_MAX_INSTRUCTIONS = 10
+    BACKEND_MAX_INSTRUCTIONS_PER_TRANSACTION = 24
 
-    MIN_TOKEN_VALUE = 0.0001  # Min value of a token to not be considered dust
+    MIN_TOKEN_VALUE = 0.000001  # Min value of a token to not be considered dust
     MAX_RETRIEVABLE_ACCOUNTS = 1100  # Safety. To avoid api server to crash
     MAX_RETRIEVABLE_ACCOUNTS_MESSAGE = "TOO_MANY_ATAS"
 
@@ -59,6 +59,10 @@ class AuthConfig:
     # DB
     REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
     REDIS_PORT = os.environ.get("REDIS_PORT", "6379")
+
+    # MIDDLEWARE
+    # MIDDLEWARE_BASE_URL_STRAPI = "http://localhost:1337/api/"
+    MIDDLEWARE_BASE_URL_STRAPI = "https://celebrinborg-86928ad1f22d.herokuapp.com/api/"
 
 
 appconfig: AuthConfig = AuthConfig()

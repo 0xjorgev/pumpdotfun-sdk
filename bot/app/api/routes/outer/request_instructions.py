@@ -31,8 +31,8 @@ async def request_close_ata_instructions(
             )
             return instructions
 
-        if len(tokens) > appconfig.BACKEND_MAX_INSTRUCTIONS:
-            raise TooManyInstructionsException(detail="Too many instructions")
+        if len(tokens) > appconfig.MAX_RETRIEVABLE_ACCOUNTS:
+            raise TooManyInstructionsException(detail=appconfig.MAX_RETRIEVABLE_ACCOUNTS_MESSAGE)
 
         tokens = [token.model_dump() for token in tokens]
 

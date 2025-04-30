@@ -167,6 +167,7 @@ def get_token_metadata(token_address: str) -> dict:
     counter = 0
     while True:
         if counter >= retries:
+            metadata = {}
             break
 
         try:
@@ -187,11 +188,13 @@ def get_token_metadata(token_address: str) -> dict:
                 continue
 
             content = response.json()
+
             file_dict = {'uri': None, 'cdn_uri': None, 'mime': None}
             files = content["result"]["content"]["files"]
             metadata.update(files[0] if files else file_dict)
             metadata.update(content["result"]["content"]["metadata"])
-            metadata["authority"] = content["result"]["authorities"][0]["address"]
+            authority = content["result"]["authorities"][0]["address"] if content["result"]["authorities"] else ""
+            metadata["authority"] = authority
             metadata["supply"] = content["result"]["token_info"]["supply"]
             metadata["decimals"] = content["result"]["token_info"]["decimals"]
             metadata["token_program"] = content["result"]["token_info"]["token_program"]
@@ -206,12 +209,13 @@ def get_token_metadata(token_address: str) -> dict:
                 metadata["insufficient_data"] = True
             break
 
-        except Exception:
+        except Exception as e:
             counter += 1
-            logging.error("get_metadata: Error retrieving metadata for token {}. Retries {} of {}".format(
+            logging.error("get_metadata: Error retrieving metadata for token {}. Retries {} of {}. Exception: {}".format(
                 token_address,
                 counter,
-                retries
+                retries,
+                e
             ))
             time.sleep(counter)
 
@@ -438,20 +442,25 @@ async def detect_dust_token_accounts(
             associated_token_account = account["pubkey"]
 
             metadata = get_token_metadata(token_address=mint)
+            if not metadata:
+                continue
+
+            if "name" not in metadata:
+                continue
 
             token_price = metadata["price_info"]["price_per_token"]
             token_value = token_price * token_amount
 
-            uri = metadata["uri"]
-            cdn_uri = metadata["cdn_uri"]
-            mime = metadata["mime"]
-            description = metadata["description"] if "description" in metadata else ""
-            name = metadata["name"].strip()
-            symbol = metadata["symbol"].strip()
-            authority = metadata["authority"]
-            supply = metadata["supply"]
-            token_program = metadata["token_program"]
-            insufficient_data = metadata["insufficient_data"]  # Non listed tokens returns a zero price
+            uri = metadata.get("uri", "")
+            cdn_uri = metadata.get("cdn_uri")
+            mime = metadata.get("mime")
+            description = metadata.get("description", "")
+            name = metadata.get("name", "").strip()
+            symbol = metadata.get("symbol", "").strip()
+            authority = metadata.get("authority", "")
+            supply = metadata.get("supply", "")
+            token_program = metadata.get("token_program", "")
+            insufficient_data = metadata.get("insufficient_data", "")  # Non listed tokens returns a zero price
 
             account_output.append(
                 {
@@ -602,159 +611,231 @@ async def close_ata_transaction(
     owner: Pubkey,
     tokens: list[dict],
     fee: float,
+    referrals: list[dict],
     encode_base64: bool = True
-) -> str:
+) -> list[str]:
     """
-    Burs all tokens from the associated token account
-    :param associated_token_account[Pubkey]: associated token account
-    :param token_mint[Pubkey]: tokens to get burned
-    :param decimals[int]: The token's decimals (default 9 for SOL).
-    :return: [str] base64 transaction object by default.
+    Closes an Associated Token Account (ATA) transaction for a given owner.
+
+    Args:
+        owner (Pubkey): The public key of the account owner.
+        tokens (list of dict): A list of dictionaries, each containing details about a token involved
+            in the transaction.
+        fee (float): The transaction fee to be applied.
+        referrals (list of dict): A list of dictionaries specifying commission for referrals.
+        encode_base64 (bool, optional): Whether to encode the transaction in base64 format. Defaults
+            to True.
+
+    Returns:
+        list of str: A list of transaction signatures as strings.
+
+    Raises:
+        ValueError: If any of the input parameters are invalid.
+        TransactionError: If the transaction fails to process.
     """
     txn = None
+    txns = []
+
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
+    console_handler = logging.StreamHandler()
+    logger.addHandler(console_handler)
+
     async with AsyncClient(appconfig.RPC_URL_HELIUS) as client:
         try:
             # Will set both burn and close intructions for every ATA
-            burn_close_instructions = []
             METRIC = {'ACCOUNTS': len(tokens), 'CLAIMED': sum(token.balance for token in tokens)}
-            logging.info("close_ata_transaction-> METRIC: {}".format(METRIC))
+            logger.info("close_ata_transaction-> METRIC: {}".format(METRIC))
+            # Prepare chunks to deal with many instructions: max 24 instructions per transaction
+            # Each chunk will become a transaction
+            burn_close_instructions = []
+            chunk = []
+            max_ixs_per_transaction = appconfig.BACKEND_MAX_INSTRUCTIONS_PER_TRANSACTION
+            ghost_ixs = 4
+            partners_fee_ixs = len(referrals)
+            max_ixs_per_chunk = max_ixs_per_transaction - ghost_ixs - partners_fee_ixs
+
+            # Check if we're dealing with an Corporate referral if claimFunds is True
+            fund_claimer = [referral["pubKey"] for referral in referrals if referral["claimFunds"]]
+            if fund_claimer:
+                # The Corporate referral will receive all funds
+                fund_claimer = Pubkey.from_string(fund_claimer[0])
+            else:
+                fund_claimer = owner
+
+            burn_ix_counter = 0
+            close_ix_counter = 0
+            token_balance_sum = 0
             for token in tokens:
+                # Business logic validation: discard tokens with value for being closed and burned.
+                if not token.is_dust:
+                    logger.warning("wallet {}: token {} is marked as not being 'is_dust'. Bypassing this to preserv its value".format(
+                        str(owner),
+                        token.token_mint
+                    ))
+                    continue
+
                 associated_token_account = get_associated_token_address(
                     owner=owner,
                     mint=Pubkey.from_string(token.token_mint)
                 )
-                # response = await client.get_account_info(associated_token_account)
-                # account_info = response.value
-                # if not account_info:
-                #     logging.error("close_ata_transaction: Associated token account {} does not exist.".format(
-                #         associated_token_account
-                #     ))
-                #     raise EntityNotFoundException(
-                #         detail="Associated token account {} nor found.".format(
-                #             str(associated_token_account)
-                #         )
-                #     )
-
-                # BURN
-                # data = account_info.data
-                # if len(data) != 165:
-                #     logging.error("close_burn_ata_instructions-> Error: Invalid data length for ATA {} for token {}".format(  # noqa: 501
-                #         str(associated_token_account),
-                #         token.token_mint
-                #     ))
-                #     raise ErrorProcessingData(
-                #         detail="Unprocessed Token"
-                #     )
-                # (
-                #     mint,
-                #     owner_data,
-                #     amount_lamports,
-                #     delegate_option,
-                #     delegate,
-                #     state,
-                #     is_native_option,
-                #     is_native,
-                #     delegated_amount,
-                #     close_authority_option,
-                #     close_authority
-                # ) = struct.unpack("<32s32sQ4s32sB4sQ8s4s32s", data)
 
                 amount = token.token_amount_lamports
                 mint = token.token_mint
                 decimals = token.decimals
+                token_balance_sum += token.balance
 
-                # Construct the burn instruction
-                params = BurnCheckedParams(
-                    program_id=TOKEN_PROGRAM_ID,
-                    mint=Pubkey.from_string(mint),
-                    account=associated_token_account,
-                    owner=owner,
-                    amount=amount,
-                    decimals=decimals,
-                    signers=[owner]
-                )
-                burn_ix = burn_checked(params=params)
-                # burn_ix_bytes = bytes(burn_ix)
+                # Construct the burn instruction only if there're tokens to burn
+                if amount > 0:
+                    burn_ix_counter += 1
+                    params = BurnCheckedParams(
+                        program_id=TOKEN_PROGRAM_ID,
+                        mint=Pubkey.from_string(mint),
+                        account=associated_token_account,
+                        owner=owner,
+                        amount=amount,
+                        decimals=decimals,
+                        signers=[owner]
+                    )
+                    burn_ix = burn_checked(params=params)
+
+                    # Every Burn ix must be with the corresponding close ix in the same transaction
+                    if chunk and len(chunk) + 1 >= max_ixs_per_chunk:
+                        chunk_data = {
+                            "ixs": [ix for ix in chunk],
+                            "burned": burn_ix_counter,
+                            "closed": close_ix_counter,
+                            "balance": token_balance_sum
+                        }
+                        burn_close_instructions.append(chunk_data)
+                        chunk = []
+                        burn_ix_counter = 0
+                        close_ix_counter = 0
+                        token_balance_sum = 0
+
+                    chunk.append(burn_ix)
 
                 # CLOSE
                 # Create the close account instruction
+                close_ix_counter += 1
                 close_ix = close_account(
                     CloseAccountParams(
                         program_id=TOKEN_PROGRAM_ID,
                         account=associated_token_account,
-                        dest=owner,
+                        dest=fund_claimer,
                         owner=owner
                     )
                 )
-                # close_ix_bytes = bytes(close_ix)
+                chunk.append(close_ix)
 
-                burn_close_instructions.append(burn_ix)
-                burn_close_instructions.append(close_ix)
+                # Closing current chunk
+                if len(chunk) >= max_ixs_per_chunk:
+                    chunk_data = {
+                        "ixs": [ix for ix in chunk],
+                        "burned": burn_ix_counter,
+                        "closed": close_ix_counter,
+                        "balance": token_balance_sum
+                    }
+                    burn_close_instructions.append(chunk_data)
+                    chunk = []
+                    burn_ix_counter = 0
+                    close_ix_counter = 0
+                    token_balance_sum = 0
+
+            if chunk:
+                chunk_data = {
+                    "ixs": [ix for ix in chunk],
+                    "burned": burn_ix_counter,
+                    "closed": close_ix_counter,
+                    "balance": token_balance_sum
+                }
+                burn_close_instructions.append(chunk_data)
+                chunk = []
 
             # Required instructions to set compute unit limit and price
             compute_unit_price_ix = set_compute_unit_price(5_000)
-            # compute_unit_price_ix_bytes = bytes(compute_unit_price_ix)
-
-            compute_units = calculate_compute_units(atas=len(tokens))
-            compute_unit_limit_ix = set_compute_unit_limit(units=compute_units)
-            # compute_unit_limit_ix_bytes = bytes(compute_unit_limit_ix)
-
-            # Variable fee
-            # Summing all ATAs balances to calculate variable fee
-            fee_ix_list = get_fee_instructions(
-                fee=fee,
-                balance=sum(token.balance for token in tokens),
-                owner=owner,
-                atas=len(tokens)
-            )
-            # fee_ix_list_bytes = [bytes(fee_ix) for fee_ix in fee_ix_list]
-
-            # Package all instructions as hex values from bytes into a single list
-            instructions = [
-                compute_unit_price_ix,  # Convert to hex for compatibility
-                compute_unit_limit_ix,
-            ]
-            instructions.extend(burn_close_instructions)
-            instructions.extend(fee_ix_list)
 
             blockhash = await client.get_latest_blockhash()
             recent_blockhash = blockhash.value.blockhash
-            msg = Message.new_with_blockhash(
-                instructions=instructions,
-                payer=owner,
-                blockhash=recent_blockhash
-            )
 
-            tx = Transaction.new_unsigned(message=msg)
-            txn = bytes(tx)
-            if encode_base64:
-                txn = base64.b64encode(txn).decode('ascii')
+            # Got chink by chunk to create transactions
+            for chunk in burn_close_instructions:
+                compute_units = calculate_compute_units(closed=chunk["closed"], burned=chunk["burned"])
+                compute_unit_limit_ix = set_compute_unit_limit(units=compute_units)
 
-            # from solders.message import MessageV0
-            # from solders.transaction import VersionedTransaction
+                # Variable fee
+                # Summing all ATAs balances to calculate variable fee
 
-            # tx = VersionedTransaction.populate(message=msg, signatures=[])
-            # # tx = VersionedTransaction(message=msg, keypairs=[])
-            # txn = bytes(tx)
-            # if encode_base64:
-            #     txn = base64.b64encode(txn).decode('ascii')
+                fee_ix_list = get_fee_instructions(
+                    fee=fee,
+                    balance=chunk["balance"],
+                    owner=owner,
+                    atas=chunk["closed"],
+                    referrals=referrals
+                )
+                # Package all instructions as hex values from bytes into a single list
+                instructions = [
+                    compute_unit_price_ix,  # Convert to hex for compatibility
+                    compute_unit_limit_ix,
+                ]
+                instructions.extend(chunk["ixs"])
+                instructions.extend(fee_ix_list)
+
+                msg = Message.new_with_blockhash(
+                    instructions=instructions,
+                    payer=owner,
+                    blockhash=recent_blockhash
+                )
+
+                tx = Transaction.new_unsigned(message=msg)
+                txn = {
+                    "tx": bytes(tx),
+                    "balance": chunk["balance"],
+                    "tokens": chunk["closed"]
+                }
+
+                if encode_base64:
+                    txn["tx"] = base64.b64encode(txn["tx"]).decode('ascii')
+
+                txns.append(txn)
 
         except EntityNotFoundException as enfe:
             raise enfe
         except Exception as e:
-            logging.error("request_close_ata_instruction Error: {}".format(e))
+            logger.error("request_close_ata_instruction Error: {}".format(e))
             raise ErrorProcessingData(detail="Internal Server Error")
 
-    return txn
+    return txns
 
 
 def get_fee_instructions(
     fee: float,
     balance: float,
     owner: Pubkey,
-    atas: int
+    atas: int,
+    referrals: list[dict]
 ) -> list[Instruction]:
-    # Fix fee: we're charing a base fix fee for every ATA we're burning and closing.
+    """_summary_
+
+    Args:
+        fee (float): _description_
+        balance (float): _description_
+        owner (Pubkey): _description_
+        atas (int): _description_
+        referrals (list[dict]): example
+        [
+            {
+                "slug": "saul",
+                "commission": 0.2,
+                "pubKey": "ECcPyowqkvKPnYTH4fnpE1sULKScbRAbw6UsU3w5Xgx",
+                "claimFunds": false
+            }
+        ]
+
+    Returns:
+        list[Instruction]: _description_
+    """
+    # Fix fee: we're charging a base fix fee for every ATA we're burning and closing.
     lamports_to_charge = int(appconfig.GHOSTFUNDS_FIX_FEES * atas * 10**9)  # Convert SOL to lamports
     fix_fees_params = TransferParams(
         from_pubkey=owner,
@@ -762,29 +843,53 @@ def get_fee_instructions(
         lamports=lamports_to_charge
     )
     fix_fees_ix = transfer(params=fix_fees_params)
-    # Variable fee
-    lamports_to_charge = int(balance * fee * 10**9)                  # Convert SOL to lamports
+    # Getting possible commisions to referrals
+    all_commissions = 0
+    if referrals:
+        # Summing all referral commisions
+        all_commissions = sum(int(referral["commission"] * 10**9) for referral in referrals) / 10**9
+
+    # Variable fee: discounting possible referral commissions
+    lamports_to_charge = int(balance * fee * (1 - all_commissions) * 10**9)  # Convert SOL to lamports
     variable_fees_params = TransferParams(
         from_pubkey=owner,
         to_pubkey=Pubkey.from_string(appconfig.GHOSTFUNDS_VARIABLE_FEES_RECEIVER),
         lamports=lamports_to_charge
     )
     variable_fees_ix = transfer(params=variable_fees_params)
-    return [fix_fees_ix, variable_fees_ix]
+    fees = [fix_fees_ix, variable_fees_ix]
+
+    # Adding transfer for referrals
+    referrals_commissions = []
+    if referrals:
+        for referral in referrals:
+            lamports = int(balance * fee * referral["commission"] * 10**9)
+            # No transfer fee if commission is 0
+            if lamports == 0:
+                continue
+
+            fees_params = TransferParams(
+                from_pubkey=owner,
+                to_pubkey=Pubkey.from_string(referral["pubKey"]),
+                lamports=lamports
+            )
+            referrals_commissions.append(transfer(params=fees_params))
+
+    fees.extend(referrals_commissions)
+    return fees
 
 
-def calculate_compute_units(atas: int):
+def calculate_compute_units(closed: int, burned: int):
     # Units consumed by each instruction
     burn_checked_units = 4742
     close_account_units = 2916
-    other_instruction_units = 1000  # Adjust based on your use case
+    other_instruction_units = 2000  # Adjust based on your use case
 
     # Total units required
-    total_units = atas * (burn_checked_units + close_account_units) + other_instruction_units
+    total_units = burned * burn_checked_units + closed * close_account_units + other_instruction_units
 
     # Add a buffer for safety
-    buffer_units = 1000
-    return total_units + buffer_units
+    return total_units
 
 
 async def close_burn_ata_instructions(
