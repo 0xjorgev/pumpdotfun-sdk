@@ -98,11 +98,13 @@ async def delivery_msg(
                 )
                 msg = translation
 
-            response = await context.bot.send_message(
+            await context.bot.send_message(
                 chat_id=target_channel_id,
                 text=msg
             )
-            print("response: {}".format(response))
+            # print("response: {}".format(response))
+            x = X()
+            x.post_tweet(message=msg)
         elif message.photo:
             msg = message.caption
             # Check if we need a translation
