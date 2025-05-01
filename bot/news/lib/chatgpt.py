@@ -18,7 +18,7 @@ class Language(Enum):
 
 class GPT:
     def __init__(self) -> None:
-        self.api_key = "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"  # noqa: E501
+        self.api_key = ""  # noqa: E501
 
         # Set up logging
         logging.basicConfig(
