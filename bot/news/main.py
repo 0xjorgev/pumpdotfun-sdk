@@ -9,11 +9,11 @@ from telegram.ext import (
     MessageHandler
 )
 
-from lib.chatgpt import (
+from bot.news.libs.chatgpt import (
     Language
 )
 
-from lib.utils import (
+from libs.utils import (
     forward_message,
     get_bot_channels
 )

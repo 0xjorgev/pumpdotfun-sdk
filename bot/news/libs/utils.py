@@ -22,11 +22,11 @@ from telegram.ext import (
 )
 
 # Internal libraries
-from lib.chatgpt import (
+from bot.news.libs.chatgpt import (
     GPT,
     Language
 )
-from lib.x import X
+from libs.x import X
 
 
 debug = False
