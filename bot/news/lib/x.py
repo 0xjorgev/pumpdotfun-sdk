@@ -2,10 +2,10 @@ import tweepy
 from requests_oauthlib import OAuth1Session
 
 
-API_KEY = 'your_api_key'
-API_SECRET = 'your_api_secret'
-ACCESS_TOKEN = 'your_access_token'
-ACCESS_SECRET = 'your_access_secret'
+API_KEY = ''
+API_SECRET = ''
+ACCESS_TOKEN = ''
+ACCESS_SECRET = ''
 
 
 class X:
