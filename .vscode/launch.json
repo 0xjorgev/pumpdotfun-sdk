@@ -107,6 +107,32 @@
         },
         "justMyCode": false
     },
+    {
+        "name": "Telegram bot",
+        "type": "python",
+        "request": "launch",
+        "program": "${workspaceFolder}/bot/news/main.py",
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "env": {
+            "PYTHONPATH": "${workspaceFolder}",
+            "ENVIRONMENT": "DUMMY"
+        },
+        "justMyCode": false
+    },
+    {
+        "name": "X connector",
+        "type": "python",
+        "request": "launch",
+        "program": "${workspaceFolder}/bot/news/lib/x.py",
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "env": {
+            "PYTHONPATH": "${workspaceFolder}",
+            "ENVIRONMENT": "DUMMY"
+        },
+        "justMyCode": false
+    },
 ]
 }
   
