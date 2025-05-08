@@ -22,11 +22,12 @@ from telegram.ext import (
 )
 
 # Internal libraries
-from bot.news.libs.chatgpt import (
+from libs.chatgpt import (
     GPT,
     Language
 )
 from libs.x import X
+from config import appconfig
 
 
 debug = False
@@ -102,9 +103,10 @@ async def delivery_msg(
                 chat_id=target_channel_id,
                 text=msg
             )
-            # print("response: {}".format(response))
-            x = X()
-            x.post_tweet(message=msg)
+
+            if appconfig.POST_TO_X:
+                x = X()
+                x.post_tweet(message=msg)
         elif message.photo:
             msg = message.caption
             # Check if we need a translation
@@ -123,22 +125,23 @@ async def delivery_msg(
                 caption=msg
             )
 
-            photo = message.photo[-1]
-            file_id = photo.file_id
+            if appconfig.POST_TO_X:
+                photo = message.photo[-1]
+                file_id = photo.file_id
 
-            # Retrieve the file
-            telegram_file: File = await context.bot.get_file(file_id)
+                # Retrieve the file
+                telegram_file: File = await context.bot.get_file(file_id)
 
-            # Create a temporary file to save the photo
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_file:
-                await telegram_file.download_to_drive(custom_path=tmp_file.name)
-                image_path = tmp_file.name
-                # Post the photo to X
-                x = X()
-                x.post_tweet(message=msg, image_path=image_path)
+                # Create a temporary file to save the photo
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_file:
+                    await telegram_file.download_to_drive(custom_path=tmp_file.name)
+                    image_path = tmp_file.name
+                    # Post the photo to X
+                    x = X()
+                    x.post_tweet(message=msg, image_path=image_path)
 
-                # Clean up the temporary file
-                os.remove(image_path)
+                    # Clean up the temporary file
+                    os.remove(image_path)
 
         elif message.document:
             await context.bot.send_document(

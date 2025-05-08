@@ -4,6 +4,8 @@ import logging
 import openai
 import re
 
+from config import appconfig
+
 
 class Language(Enum):
     English = "English"
@@ -19,7 +21,7 @@ class Language(Enum):
 class GPT:
     def __init__(self) -> None:
 
-        self.api_key = None  # noqa: E501
+        self.api_key = appconfig.OPENAI_API_KEY  # noqa: E501
 
         # Set up logging
         logging.basicConfig(
@@ -95,4 +97,4 @@ class GPT:
 
         except Exception as e:
             self.logger.error("GPT Exception: {}".format(e))
-            return None
+            return text

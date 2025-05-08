@@ -9,7 +9,8 @@ from telegram.ext import (
     MessageHandler
 )
 
-from bot.news.libs.chatgpt import (
+from config import appconfig
+from libs.chatgpt import (
     Language
 )
 
@@ -28,8 +29,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Telegram Bot Token
-BOT_TOKEN = "7151643103:AAG2Y0bVZfMQlIYxfM8iziTwTSd7sfb1EW4"        # user: @umotc_admin_bot
-BOT_DEV_TOKEN = "7772271474:AAF1Ud0oZPVLFEfhNi6kmUlF34y6moscKC8"    # user: @umotc_admin_dev_bot
+BOT_TOKEN = appconfig.TELEGRAM_BOT_TOKEN
+BOT_DEV_TOKEN = appconfig.TELEGRAM_BOT_DEV_TOKEN
 
 if environment == "dev":
     BOT_TOKEN = BOT_DEV_TOKEN
@@ -47,7 +48,7 @@ CHANNELS = [
                 "target": -1002247367774,
                 "target_language": Language.English,
                 "with_delay": False,
-                "name": "OTC Financial Markets - Derniére Minute",
+                "name": "GhostFunds.xyz - Crypto News",
                 "enabled": True
             }
         ]
@@ -100,22 +101,22 @@ CHANNELS = [
     #         },
     #     ]
     # },
-    # {
-    #     "source": -1001755306119,
-    #     "source_language": Language.Spanish,
-    #     "name": "OTC Financial Markets - Crypto",
-    #     "tag": "PRODUCTION CHANNEL",
-    #     "env": "prod",
-    #     "target_channels": [
-    #         {
-    #             "target": -1002167028599,
-    #             "target_language": Language.English,
-    #             "with_delay": False,
-    #             "name": "OTC Financial Markets - Crypto - English",
-    #             "enabled": True
-    #         },
-    #     ]
-    # },
+    {
+        "source": -1001755306119,
+        "source_language": Language.Spanish,
+        "name": "OTC Financial Markets - Crypto",
+        "tag": "PRODUCTION CHANNEL",
+        "env": "prod",
+        "target_channels": [
+            {
+                "target": -1002247367774,
+                "target_language": Language.English,
+                "with_delay": False,
+                "name": "GhostFunds.xyz - Crypto News",
+                "enabled": True
+            },
+        ]
+    },
 ]
 
 # Delay in seconds (15 minutes)

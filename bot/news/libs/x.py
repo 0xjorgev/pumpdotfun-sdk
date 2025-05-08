@@ -1,18 +1,19 @@
 import tweepy
 from requests_oauthlib import OAuth1Session
 
-
-API_KEY = ''
-API_SECRET = ''
-ACCESS_TOKEN = ''
-ACCESS_SECRET = ''
+from config import appconfig
 
 
 class X:
     def __init__(self):
         # Authenticate
-        auth = tweepy.OAuth1UserHandler(API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_SECRET)
-        self.api = tweepy.API(auth)
+        auth = tweepy.OAuth1UserHandler(
+            appconfig.X_API_KEY,
+            appconfig.X_API_SECRET,
+            appconfig.X_ACCESS_TOKEN,
+            appconfig.X_ACCESS_SECRET
+        )
+        self.api = tweepy.API(auth, wait_on_rate_limit=True)
 
     def post_tweet(self, message: str, image_path: str = None):
         payload = {
@@ -26,10 +27,10 @@ class X:
             }
 
         oauth = OAuth1Session(
-            client_key=API_KEY,
-            client_secret=API_SECRET,
-            resource_owner_key=ACCESS_TOKEN,
-            resource_owner_secret=ACCESS_SECRET,
+            client_key=appconfig.X_API_KEY,
+            client_secret=appconfig.X_API_SECRET,
+            resource_owner_key=appconfig.X_ACCESS_TOKEN,
+            resource_owner_secret=appconfig.X_ACCESS_SECRET,
         )
         response = oauth.post(
             "https://api.twitter.com/2/tweets",
