@@ -106,6 +106,7 @@ async def buy_token(
     bonding_curve: Pubkey,
     associated_bonding_curve: Pubkey,
     amount: float,
+    crator_vault: Pubkey,
     slippage: float = 0.01,
     token_price_sol_local: float = 0
 ):
@@ -134,13 +135,13 @@ async def buy_token(
         if token_price_sol_local > 0:
             # Manually calculating token price
             token_amount = amount / token_price_sol_local
-            print("** Token amount local: {}".format(token_amount))
+            print("Buy-> Token amount local: {}".format(token_amount))
         else:
             # Fetch the token price
             curve_state = get_pump_curve_state(bonding_curve)
             token_price_sol = calculate_pump_curve_price(curve_state)
             token_amount = amount / token_price_sol
-            print("** Token amount: {}".format(token_amount))
+            print("Buy-> Token amount: {}".format(token_amount))
 
         # Calculate maximum SOL to spend with slippage
         max_amount_lamports = int(amount_lamports * (1 + slippage))
@@ -156,6 +157,7 @@ async def buy_token(
             owner=payer.pubkey(),
             mint=mint
         )
+
         BUY_ACCOUNTS = [
             AccountMeta(pubkey=appconfig.PUMP_GLOBAL, is_signer=False, is_writable=False),
             AccountMeta(pubkey=appconfig.PUMP_FEE, is_signer=False, is_writable=True),
@@ -166,9 +168,10 @@ async def buy_token(
             AccountMeta(pubkey=payer.pubkey(), is_signer=True, is_writable=True),
             AccountMeta(pubkey=appconfig.SYSTEM_PROGRAM, is_signer=False, is_writable=False),
             AccountMeta(pubkey=appconfig.SYSTEM_TOKEN_PROGRAM, is_signer=False, is_writable=False),
-            AccountMeta(pubkey=appconfig.SYSTEM_RENT, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=crator_vault, is_signer=False, is_writable=True),
             AccountMeta(pubkey=appconfig.PUMP_EVENT_AUTHORITY, is_signer=False, is_writable=False),
             AccountMeta(pubkey=appconfig.PUMP_PROGRAM, is_signer=False, is_writable=False),
+            # AccountMeta(pubkey=appconfig.SYSTEM_RENT, is_signer=False, is_writable=False),
         ]
         discriminator = struct.pack("<Q", 16927863322537952870)
         data = discriminator + struct.pack("<Q", int(token_amount * 10**6)) + struct.pack("<Q", max_amount_lamports)
@@ -178,7 +181,7 @@ async def buy_token(
         jito_client = JitoJsonRpcSDK(url="https://amsterdam.mainnet.block-engine.jito.wtf/api/v1")
         jito_tip_accounts = jito_client.get_tip_accounts()
         jito_tip_account = Pubkey.from_string(jito_tip_accounts["data"]["result"][0])
-        jito_tip = int(0.0001 * 1_000_000_000)
+        jito_tip = int(0.00001 * 1_000_000_000)
         jito_transfer = TransferParams(
             from_pubkey=payer.pubkey(),
             to_pubkey=jito_tip_account,
@@ -204,11 +207,11 @@ async def buy_token(
             serialized_transaction = base64.b64encode(bytes(transaction)).decode('ascii')
 
             result = jito_client.send_txn(serialized_transaction)
-            print('Raw API response:', json.dumps(result, indent=2))
+            # print('Raw API response:', json.dumps(result, indent=2))
 
             if result['success']:
                 tx_buy = result['data']['result']
-                print(f"Transaction sent: https://solscan.io/tx/{tx_buy}")
+                print(f"Buy-> Transaction sent: https://solscan.io/tx/{tx_buy}")
 
                 confirmation = await client.confirm_transaction(
                     Signature.from_string(tx_buy),
@@ -216,21 +219,21 @@ async def buy_token(
                     last_valid_block_height=last_valid_block_height
                 )
                 if confirmation.value:
-                    print(f"Transaction confirmed: https://solscan.io/tx/{tx_buy}")
+                    print(f"Buy-> Transaction confirmed: https://solscan.io/tx/{tx_buy}")
                     from datetime import datetime
                     confirmation_stamp = datetime.now().timestamp()
                     return tx_buy, confirmation_stamp, token_amount
                 else:
-                    print("Transaction not confirmed.")                
+                    print("Buy-> Transaction not confirmed.")
             else:
-                print(f"Failed to send bundle: {result.get('error', 'Unknown error')}")
+                print(f"Buy-> Failed to send bundle: {result.get('error', 'Unknown error')}")
 
             # tx_buy = await client.send_transaction(
             #     Transaction([payer], msg, recent_blockhash),
             #     opts=TxOpts(preflight_commitment=Confirmed)
             # )
         except Exception as e:
-            print("ERROR. Failed to buy. Exception: {}".format(e))
+            print("Buy-> ERROR. Failed to buy. Exception: {}".format(e))
         return None, None, None
 
 
@@ -253,6 +256,7 @@ async def sell_token(
     token_balance: float,
     bonding_curve: Pubkey,
     associated_bonding_curve: Pubkey,
+    crator_vault: Pubkey,
     slippage: float = 0.25,
     max_retries=5
 ):
@@ -305,11 +309,12 @@ async def sell_token(
                     AccountMeta(pubkey=associated_token_account, is_signer=False, is_writable=True),
                     AccountMeta(pubkey=payer.pubkey(), is_signer=True, is_writable=True),
                     AccountMeta(pubkey=appconfig.SYSTEM_PROGRAM, is_signer=False, is_writable=False),
-                    AccountMeta(
-                        pubkey=appconfig.SYSTEM_ASSOCIATED_TOKEN_ACCOUNT_PROGRAM,
-                        is_signer=False,
-                        is_writable=False
-                    ),
+                    # AccountMeta(
+                    #     pubkey=appconfig.SYSTEM_ASSOCIATED_TOKEN_ACCOUNT_PROGRAM,
+                    #     is_signer=False,
+                    #     is_writable=False
+                    # ),
+                    AccountMeta(pubkey=crator_vault, is_signer=False, is_writable=True),
                     AccountMeta(pubkey=appconfig.SYSTEM_TOKEN_PROGRAM, is_signer=False, is_writable=False),
                     AccountMeta(pubkey=appconfig.PUMP_EVENT_AUTHORITY, is_signer=False, is_writable=False),
                     AccountMeta(pubkey=appconfig.PUMP_PROGRAM, is_signer=False, is_writable=False),
@@ -323,8 +328,20 @@ async def sell_token(
 
                 compute_units = calculate_compute_units()
                 compute_unit_limit_ix = set_compute_unit_limit(units=compute_units)
+                
+                # JITO TIP INSTRUCTION
+                jito_client = JitoJsonRpcSDK(url="https://amsterdam.mainnet.block-engine.jito.wtf/api/v1")
+                jito_tip_accounts = jito_client.get_tip_accounts()
+                jito_tip_account = Pubkey.from_string(jito_tip_accounts["data"]["result"][0])
+                jito_tip = int(0.00001 * 1_000_000_000)
+                jito_transfer = TransferParams(
+                    from_pubkey=payer.pubkey(),
+                    to_pubkey=jito_tip_account,
+                    lamports=jito_tip
+                )
+                jito_ix = transfer(params=jito_transfer)
 
-                instructions = [compute_unit_price_ix, compute_unit_limit_ix, sell_ix]
+                instructions = [compute_unit_price_ix, compute_unit_limit_ix, sell_ix, jito_ix]
 
                 # Last block hash
                 blockhash = await client.get_latest_blockhash()
@@ -347,7 +364,7 @@ async def sell_token(
                     tx_sell.value,
                     commitment="confirmed",
                     last_valid_block_height=last_valid_block_height
-                ) 
+                )
                 if confirmation.value:
                     print("Sell-> Transaction confirmed")
                     return tx_sell.value
@@ -442,6 +459,7 @@ def decode_buy_instruction(ix_data, ix_def, accounts):
         args['token_vault'] = str(accounts[4])
         args['token_account'] = str(accounts[5])
         args['buyer'] = str(accounts[6])
+        args['creator_vault'] = str(accounts[9])
 
     except Exception as e:
         print("decode_buy_instruction-> Error: {}".format(e))
@@ -469,7 +487,7 @@ async def listen_for_create_transaction(websocket):
                 "maxSupportedTransactionVersion": 0
             }
         ]
-    }) 
+    })
     await websocket.send(subscription_message)
     print(f"Subscribed to blocks mentioning program: {appconfig.PUMP_PROGRAM}")
 
@@ -579,6 +597,7 @@ async def listen_for_create_transaction(websocket):
                                                     buyer = decoded_buy_args.get('buyer')
                                                     tokens_bought = decoded_buy_args.get('amount')
                                                     sol_traded = decoded_buy_args.get('maxSolCost')
+                                                    creator_vault = decoded_buy_args.get('creator_vault')
 
                                                     developer = decoded_args.get("developer")
                                                     trader = "developer" if developer == buyer else "sniper"
@@ -589,7 +608,8 @@ async def listen_for_create_transaction(websocket):
                                                             'buyer': buyer,
                                                             'trader': trader,
                                                             'tokens_bought': tokens_bought / 10**6,
-                                                            'sol_traded': (sol_traded / 10**9) / 1.01  # taking out Pump.fun fee  # noqa: E501
+                                                            'sol_traded': (sol_traded / 10**9) / 1.01,  # taking out Pump.fun fee  # noqa: E501
+                                                            'creator_vault': creator_vault
                                                         })
 
                                                         # print("Buyer: {}, Tokens Bought: {}, SOL Traded: {}".format(
@@ -657,6 +677,11 @@ async def trade(websocket: websockets, trades: int):
     bonding_curve = Pubkey.from_string(token_data['bondingCurve'])
     associated_bonding_curve = Pubkey.from_string(token_data['associatedBondingCurve'])
 
+    if not token_data['buyers']:
+        return None
+
+    crator_vault = Pubkey.from_string(token_data['buyers'][0]['creator_vault'])
+
     token_price_sol_local = calculate_pump_curve_price_local(token_data=token_data)
     print("** Token amount local: {}".format(token_price_sol_local))
 
@@ -665,11 +690,12 @@ async def trade(websocket: websockets, trades: int):
         appconfig.BUY_SLIPPAGE * 100
     ))
     buy_tx_hash, confirmation_stamp, token_amount = await buy_token(
-        mint,
-        bonding_curve,
-        associated_bonding_curve,
-        appconfig.TRADING_DEFAULT_AMOUNT,
-        appconfig.BUY_SLIPPAGE,
+        mint=mint,
+        bonding_curve=bonding_curve,
+        associated_bonding_curve=associated_bonding_curve,
+        amount=appconfig.TRADING_DEFAULT_AMOUNT,
+        crator_vault=crator_vault,
+        slippage=appconfig.BUY_SLIPPAGE,
         token_price_sol_local=token_price_sol_local
     )
     if buy_tx_hash:
@@ -713,12 +739,13 @@ async def trade(websocket: websockets, trades: int):
         "bonding_curve": bonding_curve,
         "associated_bonding_curve": associated_bonding_curve,
         "slippage": appconfig.BUY_SLIPPAGE,
-        "max_retries": appconfig.TRADING_RETRIES
+        "max_retries": appconfig.TRADING_RETRIES,
+        "crator_vault": crator_vault
     }
     return data
 
 
-async def main(trades: int):
+async def main(trades: int = 1):
     # import hashlib
     # hash_bytes = hashlib.sha256(b'global:buy').digest()
     # # Extract the first 8 bytes and unpack them as a little-endian unsigned long long integer
@@ -750,12 +777,13 @@ async def main(trades: int):
                 bonding_curve=data["bonding_curve"],
                 associated_bonding_curve=data["associated_bonding_curve"],
                 slippage=appconfig.BUY_SLIPPAGE,
-                max_retries=appconfig.TRADING_RETRIES
+                max_retries=appconfig.TRADING_RETRIES,
+                crator_vault=data["crator_vault"]
             )
 
             trade_counter += 1
         else:
             print("Something went wrong... not adding trade counter.")
 
-# if __name__ == "__main__":
-#     asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main(trades=1))

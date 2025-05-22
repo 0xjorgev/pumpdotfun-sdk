@@ -62,7 +62,6 @@ class Redis(Enum):
     cleanTokens = "cleanTokens"
 
 
-
 class TradeRoadmap:
     test = [
         {"step": 0, "name": "test", "subscription": Suscription.subscribeNewToken},
@@ -100,7 +99,8 @@ class TradeRoadmap:
             "name": "START_SCANNER",
             "system_action": Celebrimborg.start,
             "criteria": {
-                "scanner_activity_time": 60,    # How much time the scanner will be working. -1 is always
+                "scanner_activity_time": -1,    # How much time the scanner will be working. -1 is always
+                "max_trades": 1
             },
         },
         {
@@ -116,11 +116,13 @@ class TradeRoadmap:
             "name": "SCANNER",
             "subscription": Suscription.subscribeNewToken,
             "criteria": {
-                "min_initial_buy": 1.50,        # Filter: we'll trade tokens with this initial buying amount at least.
-                "trading_amount": 0.1,          # Amount to be traded by snipers
-                "trader": Trader.sniper.value   # Who will trade the tokens
+                "min_initial_buy": 30.0,        # Filter: we'll trade tokens with this initial buying amount at least.
+                "trading_amount": 0.001,        # Amount to be traded by snipers
+                "trader": Trader.sniper.value,  # Who will trade the tokens
+                "threshold": 500_000_000,       # Amount of tokens bough by developer and snipers
+                "min_scam_buyers": 3            # Min scam buying bots for a token scam to be considered
             },
-            "action":{
+            "action": {
                 "name": "SAVE_TOKEN_IN_REDIS",
                 "redis": Redis.saveToken,
                 "criteria": {
@@ -223,6 +225,30 @@ class TradeRoadmap:
         {"step": 5, "name": "UNSUBSCRIBE_TO_TOKEN", "subscription": Suscription.unsubscribeTokenTrade},
         {"step": 6, "name": "CLOSE_TOKEN", "redis": Redis.closeToken},
     ]
+    sniper_3_sell_artifical_pump = [
+        {
+            "step": 0,
+            "name": "WAIT_FOR_TOKEN",
+            "redis": Redis.readToken,
+            "criteria": {
+                "use_all_balance": True,    # If True, all balance will be used if balance < trading amount
+                "age_tolerance ": 2,        # Acceptable seconds since token creation in redis
+            }
+        },
+        {
+            "step": 1,
+            "name": "WAIT",
+            "WAITING_SECONDS": 15
+        },
+        {
+            "step": 2,
+            "name": "TRADE_TOKEN_SELL",
+            "action": TxType.sell,
+            "on_error_go_to_step": 2
+        },
+        {"step": 3, "name": "UNSUBSCRIBE_TO_TOKEN", "subscription": Suscription.unsubscribeTokenTrade},
+        {"step": 4, "name": "CLOSE_TOKEN", "redis": Redis.closeToken},
+    ]
 
 
 # Patch the running event loop. Required to get wallet's balance
@@ -249,6 +275,7 @@ class Pump:
         self.tokens_to_be_traded = appconfig.TRADING_TOKENS_AT_THE_SAME_TIME
         self.trading_amount = amount
         self.trading_sell_amount = amount * (1 + target)    # TODO: apply this when we have the Bounding Courve
+        self.trade_counter = 0
 
         self.keypair = Keypair.from_base58_string(appconfig.PRIVKEY)
         self.ssl_context = ssl.create_default_context(cafile=certifi.where())
@@ -256,9 +283,11 @@ class Pump:
 
         self.scanner_start_time = None
         self.scanner_activity_time = appconfig.SCANNER_WORKING_TIME
+        self.max_trades = appconfig.SCANNER_MAX_TARDES
         self.stop_app = False
 
         self.trade_fees = appconfig.FEES
+        self.halt_trade = 0
 
     def start_scanner(self):
         self.scanner_start_time = datetime.now()
@@ -383,6 +412,8 @@ class Pump:
                                 if "scanner_activity_time" in step["criteria"]:
                                     self.scanner_activity_time = step["criteria"]["scanner_activity_time"]
 
+                                self.max_trades = step.get("criteria", []).get("max_trades")
+
                                 start_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
                                 print("Start at {} ".format(
                                     start_time
@@ -392,6 +423,10 @@ class Pump:
                                 stop_time = "Never" if self.scanner_activity_time == -1 else stop_time
                                 print("Expected stop at {} ".format(
                                     stop_time
+                                ))
+                                stop_max_trades = "Infinite" if self.max_trades == -1 else self.max_trades
+                                print("Expected max trades: {} ".format(
+                                    stop_max_trades
                                 ))
                                 step_index += 1
                                 continue
@@ -686,7 +721,16 @@ class Pump:
                                                 continue
 
                                         if suscription.value == Suscription.subscribeNewToken.value:
-                                            move_to_next_step = self.new_token_suscription(msg=msg, step=step, redisdb=redisdb)
+                                            if self.halt_trade > 0:
+                                                print("HALT: for {} tokens".format(self.halt_trade))
+                                                self.halt_trade -= 1
+                                                continue
+
+                                            move_to_next_step = self.new_token_suscription(
+                                                msg=msg,
+                                                step=step,
+                                                redisdb=redisdb
+                                            )
 
                                         if suscription.value == Suscription.subscribeTokenTrade.value:
                                             # Getting the mint address we'll work with
@@ -770,15 +814,22 @@ class Pump:
             move_to_next_step = True
             return move_to_next_step
 
+        if self.trade_counter >= self.max_trades:
+            self.add_update_token(token=msg)
+            print("Max trades reached: {}".format(self.trade_counter))
+            self.tokens[msg["mint"]]["exit_criteria"] = "MAX_TRADES_REACHED"
+            move_to_next_step = True
+            return move_to_next_step
+
         min_initial_buy = self.min_initial_buy
         if "min_initial_buy" in step["criteria"]:
             min_initial_buy = step["criteria"]["min_initial_buy"]
-        
+
         capacity = appconfig.SCANNER_WRITTING_CAPACITY
         if "action" in step and "criteria" in step["action"]:
             if "capacity" in step["action"]["criteria"]:
                 capacity = step["action"]["criteria"]["capacity"]
-        
+
         trading_amount = appconfig.SCANNER_TRADING_AMOUNT
         if "trading_amount" in step["criteria"]:
             trading_amount = step["criteria"]["trading_amount"]
@@ -788,6 +839,122 @@ class Pump:
             trader = step["criteria"]["trader"]
 
         initial_buy_sols = initial_buy_calculator(sol_in_bonding_curve=msg["vSolInBondingCurve"])
+
+        # if initial_buy_sols < min_initial_buy:
+        #     print("Discarting token {}: initial buy {} is lower than expected {}".format(
+        #         msg["mint"],
+        #         initial_buy_sols,
+        #         min_initial_buy
+        #     ))
+        #     move_to_next_step = False
+        #     return move_to_next_step
+
+
+        # TODO: retrieve block and check if this is a scamm token
+        from bot.libs.solana_functions import get_block_by_signature
+        from bot.libs.utils import get_token_data_from_block
+        from bot.libs.pump_buy import (
+            calculate_pump_curve_price_local,
+            buy_token,
+            sell_token
+        )
+        import asyncio
+
+        block = asyncio.run(get_block_by_signature(signature_str=msg["signature"]))
+
+        if block is None:
+            move_to_next_step = False
+            return move_to_next_step
+
+        # Checking if the block is two old (fetching blocks produces a delay over time)
+        block_time = datetime.fromtimestamp(block.value.block_time)
+        block_age = (datetime.now() - block_time).total_seconds()
+        if block_age > 8:
+            # Block is too old and trade will be halted for X new token received.
+            print("Block age is {}".format(block_age))
+            self.halt_trade = int(block_age / 5) + 1
+            move_to_next_step = False
+            return move_to_next_step
+
+        threshold = appconfig.SCANNER_THRESHOLD
+        if "threshold" in step["criteria"]:
+            threshold = step["criteria"]["threshold"]
+
+        min_scam_buyers = step.get("criteria", []).get("min_scam_buyers", appconfig.SCANNER_MIN_SCAM_BUYERS)
+
+        token_data_list = get_token_data_from_block(
+            block=block,
+            threshold=threshold,
+            min_scam_buyers=min_scam_buyers
+        )
+        if not token_data_list:
+            # if initial_buy_sols < min_initial_buy:
+            #     print("Discarting token {}: initial buy {} is lower than expected {}".format(
+            #         msg["mint"],
+            #         initial_buy_sols,
+            #         min_initial_buy
+            #     ))
+            move_to_next_step = False
+            return move_to_next_step
+
+        token_data = token_data_list[0]  # Note: As we're trading only one token at the time
+
+        # Buy token immediately
+        mint = Pubkey.from_string(token_data['mint'])
+        bonding_curve = Pubkey.from_string(token_data['bondingCurve'])
+        associated_bonding_curve = Pubkey.from_string(token_data['associatedBondingCurve'])
+        crator_vault = Pubkey.from_string(token_data['buyers'][0]['creator_vault'])
+
+        token_price_sol_local = calculate_pump_curve_price_local(token_data=token_data)
+
+        buy_tx_hash, confirmation_stamp, token_amount = asyncio.run(
+            buy_token(
+                mint=mint,
+                bonding_curve=bonding_curve,
+                associated_bonding_curve=associated_bonding_curve,
+                amount=appconfig.TRADING_DEFAULT_AMOUNT,
+                slippage=appconfig.BUY_SLIPPAGE,
+                token_price_sol_local=token_price_sol_local,
+                crator_vault=crator_vault
+            )
+        )
+        if buy_tx_hash:
+            self.trade_counter += 1
+            print("Trade #{}:  https://pump.fun/coin/{}".format(self.trade_counter, mint))
+            print("** Token amount local: {}".format(token_price_sol_local))
+            print("** Bought {:.6f} SOL worth of the new token with {:.1f}% slippage tolerance...".format(
+                appconfig.TRADING_DEFAULT_AMOUNT,
+                appconfig.BUY_SLIPPAGE * 100
+            ))
+        else:
+            print("** Failed to buy {}. Looking for another new token".format(mint))
+            move_to_next_step = True
+            return move_to_next_step
+
+        # ###############################################
+        # MVP: awaiting and selling here at scanner level
+        time_delta = abs(confirmation_stamp - token_data["blockTime"])
+        sleep_time = 0 if appconfig.TRADING_TIME - time_delta < 0 else appconfig.TRADING_TIME - time_delta
+
+        print("Trading-> Sleeping for {} seconds".format(sleep_time))
+        time.sleep(sleep_time)
+
+        # Sell
+        print("Sell-> Time to sell it all")
+        _ = asyncio.run(
+            sell_token(
+                mint=mint,
+                token_balance=token_amount,
+                bonding_curve=bonding_curve,
+                associated_bonding_curve=associated_bonding_curve,
+                crator_vault=crator_vault,
+                slippage=appconfig.BUY_SLIPPAGE
+            )
+        )
+
+        initial_buy_sols = 0  # Forcing not to write to redis
+        print("\n")
+        # ###############################################
 
         if initial_buy_sols >= min_initial_buy:
             if "action" in step and "redis" in step["action"]:
@@ -803,7 +970,6 @@ class Pump:
                         return move_to_next_step
                     # Scanner has capacity to add more tokens to readis
                     for _ in range(capacity - len(unchecked_tokens)):
-                        
                         # Rule of thumb: never buy more than the token's initial buy
                         if trading_amount > initial_buy_sols:
                             print("INFO: redis -> Amount {} was reduced to {}. Token {} initial buy is lower than expected".format(
@@ -820,7 +986,8 @@ class Pump:
                             "is_closed": False,
                             "timestamp": datetime.now().timestamp(),
                             "trader": trader,
-                            "initial_buy_sols": initial_buy_sols
+                            "initial_buy_sols": initial_buy_sols,
+                            "crator_vault": str(crator_vault)
                         }
                         token_data.update(msg)
                         save_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
@@ -831,7 +998,6 @@ class Pump:
                             initial_buy_sols
                         ))
                         redisdb.set_token(token=msg["mint"], token_data=token_data)
-                
 
         # TODO: relase tokens to snipers with redis recods. At this moment we're listening to one token only
         return move_to_next_step
@@ -847,7 +1013,7 @@ class Pump:
         time_stamps = {"buy_timestamp": None, "sell_timestamp": None}
         if "buy_timestamp" in token:
             time_stamps["buy_timestamp"] = token["buy_timestamp"]
-        
+
         if "sell_timestamp" in token:
             time_stamps["sell_timestamp"] = token["sell_timestamp"]
 
@@ -880,9 +1046,7 @@ class Pump:
             amount_traded=self.trading_amount,
             criteria=step["criteria"]
         )
-
         return move_to_next_step, criteria
-
 
     def validate_criteria(self, msg: Dict, amount_traded: float, criteria: Dict) -> bool:
         """
@@ -1341,9 +1505,6 @@ def test():
     print("Balance after:  {}".format(balance))
 
 
-def test_ws():
-    import asyncio
-    
 import json
 import websockets
 

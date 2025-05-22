@@ -871,6 +871,245 @@ def get_account_information(account: Pubkey) -> GetAccountInfoResp:
     return account_info_resp
 
 
+from solders.transaction import VersionedTransaction
+
+
+def derive_creator_vault(mint: Pubkey, program_id: Pubkey) -> Pubkey:
+    seeds = [
+        b"creator-vault",
+        bytes(mint),
+    ]
+    vault_pda, _ = Pubkey.find_program_address(seeds, program_id)
+    return vault_pda
+
+
+def load_idl(file_path):
+    with open(file_path, 'r') as f:
+        return json.load(f)
+
+
+def decode_create_instruction(ix_data, ix_def, accounts):
+    args = {}
+    offset = 8  # Skip 8-byte discriminator
+    try:
+        for arg in ix_def['args']:
+            if arg['type'] == 'string':
+                length = struct.unpack_from('<I', ix_data, offset)[0]
+                offset += 4
+                value = ix_data[offset:offset + length].decode('utf-8')
+                offset += length
+            elif arg['type'] == 'publicKey':
+                value = base64.b64encode(ix_data[offset:offset + 32]).decode('utf-8')
+                offset += 32
+            else:
+                raise ValueError(f"Unsupported type: {arg['type']}")
+
+            args[arg['name']] = value
+
+        # Add accounts
+        args['mint'] = str(accounts[0])
+        args['bondingCurve'] = str(accounts[2])
+        args['associatedBondingCurve'] = str(accounts[3])
+        args['developer'] = str(accounts[7])
+        args['rent'] = str(accounts[11])
+    except Exception as e:
+        print("decode_create_instruction-> Error: {}".format(e))
+
+    return args
+
+
+def decode_buy_instruction(ix_data, ix_def, accounts):
+    args = {}
+    offset = 8  # Skip 8-byte discriminator
+
+    try:
+        for arg in ix_def['args']:
+            arg_type = arg['type']
+            arg_name = arg['name']
+
+            if arg_type == 'string':
+                length = struct.unpack_from('<I', ix_data, offset)[0]
+                offset += 4
+                value = ix_data[offset:offset + length].decode('utf-8')
+                offset += length
+            elif arg_type == 'publicKey':
+                value = base64.b64encode(ix_data[offset:offset + 32]).decode('utf-8')
+                offset += 32
+            elif arg_type == 'u64':
+                value = struct.unpack_from('<Q', ix_data, offset)[0]
+                offset += 8
+            elif arg_type == 'bool':
+                value = struct.unpack_from('<?', ix_data, offset)[0]
+                offset += 1
+            else:
+                raise ValueError(f"Unsupported type: {arg_type}")
+
+            args[arg_name] = value
+
+        # Map accounts to argument names
+
+        args['pump_fee_account'] = str(accounts[1])
+        args['mint'] = str(accounts[2])
+        args['pump_bunding_curve'] = str(accounts[3])
+        args['token_vault'] = str(accounts[4])
+        args['token_account'] = str(accounts[5])
+        args['buyer'] = str(accounts[6])
+        args['creator_vault'] = str(accounts[9])
+
+    except Exception as e:
+        print("decode_buy_instruction-> Error: {}".format(e))
+    # args['token_account'] = str(accounts[2])
+
+    return args
+
+
+def get_token_data_from_block(block, threshold, min_scam_buyers) -> dict:
+    token_data = {}
+    decoded_args = {}
+    idl = load_idl('bot/idl/pump_fun_idl.json')
+    create_discriminator = 8576854823835016728
+    buy_discriminator = 16927863322537952870
+    tradable_tokens = []
+    buyers = []
+
+    for tx_with_meta in block.value.transactions:
+        encoded_tx = tx_with_meta.transaction
+        if encoded_tx.message:
+            instructions = encoded_tx.message.instructions
+            for ix in instructions:
+                program_id = str(ix.program_id)
+                if program_id == str(appconfig.PUMP_PROGRAM):
+                    ix_data = base58.b58decode(ix.data)
+                    discriminator = struct.unpack('<Q', ix_data[:8])[0]
+
+                    account_keys = []
+                    if discriminator == create_discriminator:
+                        create_ix = next(
+                            instr for instr in idl['instructions'] if instr['name'] == 'create'
+                        )
+                        try:
+                            for index in ix.accounts:
+                                for account_key in tx_with_meta.transaction.message.account_keys:
+                                    if str(index) == str(account_key.pubkey):
+                                        account_keys.append(str(account_key.pubkey))
+                                        continue
+                        except Exception:
+                            print("Create Error: Mismatch between ix.accounts(${}) and account_keys".format(
+                                len(ix.accounts)),
+                                len(tx_with_meta.transaction.message.account_keys)
+                            )
+                            continue
+
+                        decoded_args = decode_create_instruction(
+                            ix_data,
+                            create_ix,
+                            account_keys
+                        )
+                        if not decoded_args:
+                            break
+
+                        if "mint" not in decoded_args:
+                            break
+
+                        decoded_args["block"] = block.value.parent_slot + 1
+                        decoded_args["blockTime"] = block.value.block_time
+                        decoded_args["buyers"] = []
+                        decoded_args["seen_buyers"] = set()
+
+                        token_data = {
+                            decoded_args["mint"]: decoded_args.copy(),
+                        }
+                        continue
+
+                    # We'll check on BUYs after having a new token created
+                    if decoded_args and discriminator == buy_discriminator:
+                        buy_ix = next(
+                            instr for instr in idl['instructions'] if instr['name'] == 'buy'
+                        )
+                        try:
+                            for index in ix.accounts:
+                                for account_key in tx_with_meta.transaction.message.account_keys:
+                                    if str(index) == str(account_key.pubkey):
+                                        account_keys.append(str(account_key.pubkey))
+                                        continue
+                        except Exception:
+                            print("Buy Error: Mismatch between ix.accounts(${}) and account_keys".format(
+                                len(ix.accounts)),
+                                len(tx_with_meta.transaction.message.account_keys)
+                            )
+                            continue
+
+                        decoded_buy_args = decode_buy_instruction(
+                            ix_data,
+                            buy_ix,
+                            account_keys
+                        )
+
+                        if decoded_buy_args.get('mint', '') in token_data:
+                            buyer = decoded_buy_args.get('buyer')
+                            tokens_bought = decoded_buy_args.get('amount')
+                            sol_traded = decoded_buy_args.get('maxSolCost')
+                            creator_vault = decoded_buy_args.get('creator_vault')
+
+                            developer = decoded_args.get("developer")
+                            trader = "developer" if developer == buyer else "sniper"
+                            if buyer not in token_data[decoded_buy_args.get('mint')]["seen_buyers"]:  # noqa: E501
+                                # Add the buyer to the set
+                                token_data[decoded_buy_args.get('mint')]["seen_buyers"].add(buyer)  # noqa: E501
+                                token_data[decoded_buy_args.get('mint')]["buyers"].append({
+                                    'buyer': buyer,
+                                    'trader': trader,
+                                    'tokens_bought': tokens_bought / 10**6,
+                                    'sol_traded': (sol_traded / 10**9) / 1.01,  # taking out Pump.fun fee  # noqa: E501
+                                    'creator_vault': creator_vault
+                                })
+
+                        continue
+
+    if token_data:
+        if len(list(token_data.keys())) > 1:
+            print("-> Tokens: {}".format(len(list(token_data.keys()))))
+
+        for token, data in token_data.items():
+            print("-> Checking on token {}".format(token))
+            total_tokens_bought = sum(
+                buyer["tokens_bought"] for buyer in data.get("buyers", [])
+            )
+            if total_tokens_bought >= threshold:
+                start_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
+                if (len(data.get("buyers", [])) > min_scam_buyers):
+                    print("{} Scam 'BIG' token found. Tokens bought {}".format(
+                        start_time,
+                        total_tokens_bought
+                    ))
+                    tradable_tokens.append(data)
+                elif (len(data.get("buyers", [])) == 1):
+                    print("{} Whale found. Tokens bought {}".format(
+                        start_time,
+                        total_tokens_bought
+                    ))
+                    tradable_tokens.append(data)
+                else:
+                    print(" Mix found: developer plus some sniper bots. Discarting token...")
+            # else:
+            #     print("*** TESTING token...")
+            #     tradable_tokens.append(data)
+
+    return tradable_tokens
+
+
+# 👇 Sample re-derivation (this is illustrative, your actual seeds may vary)
+def get_associated_bonding_curve(bonding_curve: Pubkey, mint: Pubkey, program_id: Pubkey):
+    seed1 = b"bonding"
+    seed2 = bytes(bonding_curve)
+    seed3 = bytes(mint)
+    try:
+        return Pubkey.find_program_address([seed1, seed2, seed3], program_id)[0]
+    except Exception as e:
+        print("get_associated_bonding_curve Exception: {}".format(e))
+        return None
+
+
 async def test():
     prefix = "Ghost"
 
