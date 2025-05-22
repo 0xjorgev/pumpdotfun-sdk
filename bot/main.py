@@ -6,6 +6,7 @@ from bot.libs.utils import Trader
 from config import appconfig
 from bot.libs.pump_buy import main as tax_collector_main
 
+
 async def main():
     pump = Pump(
         executor_name="sniper2",
@@ -18,7 +19,7 @@ async def main():
     )
 
     tasks = [
-        # pump.subscribe(steps=TradeRoadmap.sniper_2_detect_artifical_pump),
+        # pump.subscribe(steps=TradeRoadmap.sniper_3_sell_artifical_pump),
         scanner.subscribe(steps=TradeRoadmap.scanner),
         # tax_collector_main(trades=1)
     ]

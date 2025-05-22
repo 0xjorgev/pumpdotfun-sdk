@@ -19,7 +19,7 @@ from libs.utils import (
     get_bot_channels
 )
 
-environment = "dev"
+environment = "prod"
 
 # Set up logging
 logging.basicConfig(

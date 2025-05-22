@@ -64,8 +64,11 @@ class AuthConfig:
     SCANNER_MIN_TRADING_AMOUNT = 1.00       # Min Sols a token must have as first buy to be considered for trading
     SCANNER_WRITTING_CAPACITY = 1           # How many tokens to scanned will write at the same time in Redis
     SCANNER_TRADING_AMOUNT = 1.00           # Sols the sniper will trade
-    SCANNER_WORKING_TIME = 600               # Seconds the scanner will be working
+    SCANNER_WORKING_TIME = 600              # Seconds the scanner will be working
     SCANNER_PUMPDONTFUN_INITIAL_FUND = 30   # Sols placed by pump.fun to launch a token
+    SCANNER_THRESHOLD = 400_000_000         # SOLs bought by scam bot to consider a scam token
+    SCANNER_MIN_SCAM_BUYERS = 4             # Minimum bot buyers for a scam to token to be considered
+    SCANNER_MAX_TARDES = -1
     # DB
     REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
     REDIS_PORT = os.environ.get("REDIS_PORT", "6379")
@@ -73,17 +76,23 @@ class AuthConfig:
     BUY_SLIPPAGE = 0.2  # 20% slippage tolerance for buying
     SELL_SLIPPAGE = 0.2
     LAMPORTS_PER_SOL = 1_000_000_000
-    PUMP_PROGRAM = Pubkey.from_string("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P")
+
     PUMP_GLOBAL = Pubkey.from_string("4wTV1YmiEkRvAtNtsSGPtUrqRYQMe5SKy2uB4Jjaxnjf")
-    PUMP_EVENT_AUTHORITY = Pubkey.from_string("Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1")
-    PUMP_FEE = Pubkey.from_string("CebN5WGQ4jvEPvsVU4EoHEpgzq1VV7AbicfhtW4xC9iM")
+    # PUMP_FEE = Pubkey.from_string("CebN5WGQ4jvEPvsVU4EoHEpgzq1VV7AbicfhtW4xC9iM")
+    # PUMP_FEE = Pubkey.from_string("7VtfL8fvgNfhz17qKRMjzQEXgbdpnHHHQRh54R9jP2RJ")
+    PUMP_FEE = Pubkey.from_string("7hTckgnGnLQR6sdH7YkqFTAA7VwTfYFaZ6EhEsU3saCX")
     SYSTEM_PROGRAM = Pubkey.from_string("11111111111111111111111111111111")
     SYSTEM_TOKEN_PROGRAM = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+    CREATOR_VAULT = Pubkey.from_string("3GD3r71RdFkBJPLJWpYhY55iqiRSemjQeLywQ6qQfp8S")
+    PUMP_EVENT_AUTHORITY = Pubkey.from_string("Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1")
+    PUMP_PROGRAM = Pubkey.from_string("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P")
+
     SYSTEM_ASSOCIATED_TOKEN_ACCOUNT_PROGRAM = Pubkey.from_string("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL")
     SYSTEM_RENT = Pubkey.from_string("SysvarRent111111111111111111111111111111111")
     SOL = Pubkey.from_string("So11111111111111111111111111111111111111112")
+
     TOKEN_DECIMALS = 6
-    TRADING_TIME = 35
+    TRADING_TIME = 60
 
 
 appconfig: AuthConfig = AuthConfig()

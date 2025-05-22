@@ -327,7 +327,7 @@ async def basic_bundle():
 
         # Send the bundle using sendBundle method
         result = jito_client.send_bundle(bundle_request)
-        print('Raw API response:', json.dumps(result, indent=2))
+        # print('Raw API response:', json.dumps(result, indent=2))
 
         if result['success']:
             bundle_id = result['data']['result']
