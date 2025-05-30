@@ -7,8 +7,6 @@ import requests
 import struct
 import time
 
-from api.handlers.exceptions import ErrorProcessingData
-
 from datetime import datetime
 from solana.rpc.async_api import AsyncClient
 from solana.rpc.types import TxOpts
@@ -34,9 +32,11 @@ from spl.token.instructions import (
 )
 from spl.token.constants import ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID
 from api.config import appconfig
-from api.handlers.exceptions import EntityNotFoundException
+from api.handlers.exceptions import EntityNotFoundException, ErrorProcessingData
+from api.models.outer_models import RequestTransactionToken
 # from bot.app.api.config import appconfig
-# from bot.app.api.handlers.exceptions import EntityNotFoundException
+# from bot.app.api.handlers.exceptions import EntityNotFoundException, ErrorProcessingData
+# from bot.app.api.models.outer_models import RequestTransactionToken
 
 
 async def get_solana_balance(public_key: Pubkey) -> float:
@@ -607,13 +607,87 @@ def get_associated_token_address(owner: Pubkey, mint: Pubkey) -> Pubkey:
     return key
 
 
+async def get_atas_from_owner(owner: Pubkey) -> list[dict]:
+    """Retrieve token list for a particular onwer
+       Limits may applied depending if the limits are inabled in the config file
+
+    Args:
+        owner (Pubkey): Solana owner account
+    Returns:
+        list[dict]: list of traqnsactions with balance and tokens per transaction.
+        Example:
+        [
+            {
+                "token_mint": "DLqiNLHydLZ42LmJaQ7eU7K3L9phpgEoM3BQKc4Lpump",
+                "decimals": 6,
+                "balance": 0.002039,
+                "token_amount_lamports": 1,
+                "is_dust": true
+            },
+            {
+                "token_mint": "EJLs11VixV9rTrRhxCuReRN8v1zDQoaDjYG3cgBi3pWs",
+                "decimals": 6,
+                "balance": 0.002039,
+                "token_amount_lamports": 2,
+                "is_dust": true
+            }
+        ]
+    """
+    tokens = []
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
+    console_handler = logging.StreamHandler()
+    logger.addHandler(console_handler)
+
+    try:
+        accounts = []
+        counter = 0
+        while True:
+            if counter >= appconfig.RETRIES:
+                break
+            try:
+                accounts = get_token_accounts_by_owner(wallet_address=str(owner))
+            except ErrorProcessingData:
+                counter += 1
+                continue
+            break
+
+        if len(accounts) >= appconfig.MAX_RETRIEVABLE_ACCOUNTS:
+            accounts = accounts[0: appconfig.MAX_RETRIEVABLE_ACCOUNTS]
+
+        for account in accounts:
+            amount = account["account"]["data"]["parsed"]["info"]["tokenAmount"]["uiAmount"]
+            decimals = account["account"]["data"]["parsed"]["info"]["tokenAmount"]["decimals"]
+            token_amount_lamports = int(amount * 10 ** decimals)
+            token_mint = account["account"]["data"]["parsed"]["info"]["mint"]
+            token = RequestTransactionToken(
+                token_mint=token_mint,
+                decimals=decimals,
+                balance=account["account"]["lamports"] / 10e8,
+                token_amount_lamports=token_amount_lamports,
+                is_dust=token_amount_lamports == 0
+            )
+
+            tokens.append(token)
+
+        # AWS log metric
+        METRIC = {'ACCOUNTS': len(tokens), 'CLAIMED': sum(token.balance for token in tokens)}
+        logger.info("close_ata_transaction-> METRIC: {}".format(METRIC))
+
+    except Exception as e:
+        logger.error("get_atas_from_owner Error: {}".format(e))
+        raise ErrorProcessingData(detail="Internal Server Error")
+
+    return tokens
+
+
 async def close_ata_transaction(
     owner: Pubkey,
     tokens: list[dict],
     fee: float,
     referrals: list[dict],
     encode_base64: bool = True
-) -> list[str]:
+) -> list[dict]:
     """
     Closes an Associated Token Account (ATA) transaction for a given owner.
 
@@ -1202,5 +1276,201 @@ async def recover_rent_client_from_instructions(go_local: bool = True):
         print("recover_rent_client_from_instructions-> Error: {}".format(e))
 
 
+async def create_ata_txns_from_tokens(
+    kpair: Keypair,
+    tokens: list[str]
+) -> list[any]:
+
+    txns = []
+    # atas = []
+
+    # for token in tokens:
+    #     ata = get_associated_token_address(
+    #         owner=kpair.pubkey(),
+    #         mint=Pubkey.from_string(token)
+    #     )
+    #     atas.append(ata)
+
+    def chunk_tokens(tokens: list[str], max_chunk_size: int = 6) -> list[list[str]]:
+        return [tokens[i:i + max_chunk_size] for i in range(0, len(tokens), max_chunk_size)]
+
+    chunks = chunk_tokens(tokens=tokens)
+
+    import spl.token.instructions as spl_token
+    from bot.domain.jito_rpc import JitoJsonRpcSDK
+
+    compute_unit_price_ix = set_compute_unit_price(20_000)
+
+    async with AsyncClient(appconfig.RPC_URL_HELIUS) as client:
+        try:
+            blockhash = await client.get_latest_blockhash()
+            recent_blockhash = blockhash.value.blockhash
+
+            # JITO TIP INSTRUCTION
+            jito_client = JitoJsonRpcSDK(url="https://amsterdam.mainnet.block-engine.jito.wtf/api/v1")
+            jito_tip_accounts = jito_client.get_tip_accounts()
+            jito_tip_account = Pubkey.from_string(jito_tip_accounts["data"]["result"][0])
+            jito_tip = int(0.00001 * 1_000_000_000)
+            jito_transfer = TransferParams(
+                from_pubkey=kpair.pubkey(),
+                to_pubkey=jito_tip_account,
+                lamports=jito_tip
+            )
+            jito_ix = transfer(params=jito_transfer)
+
+            for chunk in chunks:
+                # Get ata from owner pubkey
+                # Populate a list of create ATA instructions of max 22
+                # Calculate the unit price and limit for all instructions
+                ixs = []
+                for token in chunk:
+                    create_ata_ix = spl_token.create_associated_token_account(
+                        payer=kpair.pubkey(),
+                        owner=kpair.pubkey(),
+                        mint=Pubkey.from_string(token)
+                    )
+                    ixs.append(create_ata_ix)
+
+                compute_unit_limit_ix = set_compute_unit_limit(units=25_000 * len(ixs))
+
+                instructions = [
+                    compute_unit_price_ix,
+                    compute_unit_limit_ix,
+                ]
+                instructions.extend(ixs)
+                instructions.append(jito_ix)
+
+                signed_tx = Transaction.new_signed_with_payer(
+                    instructions=instructions,
+                    payer=kpair.pubkey(),
+                    signing_keypairs=[kpair],
+                    recent_blockhash=recent_blockhash
+                )
+                txns.append(signed_tx)
+        except Exception as e:
+            logging.error(f"build_create_atas_txn_from_tokens: Error getting recent_blockhash: {e}")
+            return txns
+
+    return txns
+
+
+async def test_create_atas():
+
+    from bot.config import appconfig
+    keypair = Keypair.from_base58_string(appconfig.PRIVKEY)
+
+    tokens = [
+        "7CHTaFLQEHndoPkafA31twwSjZnZGtKNgKwPxqwtpump",
+        "FtUEW73K6vEYHfbkfpdBZfWpxgQar2HipGdbutEhpump",
+        "C3DwDjT17gDvvCYC2nsdGHxDHVmQRdhKfpAdqQ29pump",
+        "7qhwYUXBaPTfWkhUpgWTjHAvdG48wRj5TLmTQ5Topump",
+        "36CYEd51RBEjAe5uQasHZojFgv1rvpyvbFwDDFezpump",
+        "3raAqhQ8VYe47LYVM72NpabmJc9huTTwxrhwnSG3pump",
+        "83fhExU2qYYZmaHPZsqEHiMunZRgMfKVCvk3L7k7pump",
+        "J5ZNsRW177Rs3mLs9zACZzgscp8zZNJVkbfj969opump",
+        "8K5u9mBvNobCPE2XBQk2fNT1xCaCUsb5zN5qRWYxpump",
+        "odBJHTYM4NM4XqXKAFkUrzRtWnzt36hhqPneLWxpump",
+        "XLS8eXMAuBYna3ArxgT1DzasuC8UBRvSuHeNtZzpump",
+        "D6wZgVsT4c4QNStzj2FarPRgwcyrqYuRD1FS598Cpump",
+        "G9SAG1et4KHTduy13koBAAGdwNhV7QmhrXGc7kZBpump",
+        "8JQ3npabH53STwVgCoA2BQDiiEZqP1nyLi2y1CSzpump",
+        "4TwDBssW3miModmynxGhPQrPm1WrPZdtNeoL9CiFpump",
+        "6nAJ6ZimrUFxXjBH7Tsj4zVp1oARo2uafz7dLGgMpump",
+        "AM5sEWZh9YvNgMk2eYxc4uYi2EQhqqZHvf6Dxi5Ppump",
+        "HUCaFwwuGhDSe8HFhp2z4TTD6wJQcKrrUtdcJP7Ypump",
+        "GH2wWLnVDXdQND4DyDRbChbzcqVoQCSPjjukxvNdpump",
+        "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump",
+        "cbbtcf3aa214zXHbiAZQwf4122FBYbraNdFqgw4iMij",
+        "27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4",
+        "6ps9ANdseXPJeWA9sCheru6e3jdFvikC6CoGauAefN1w",
+        "FeRCso6sBffS42MW2pZNgHgveHjLvYNqniNBmbco9kZH",
+        "CZxJzXy9eH6vmq2oAo8wyz3VtWspdUYzLGoJjaUDFKe8",
+        "6FVyLVhQsShWVUsCq2FJRr1MrECGShc3QxBwWtgiVFwK",
+        "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+        "bgSoLfRx1wRPehwC9TyG568AGjnf1sQG1MYa8s3FbfY",
+        "CBdCxKo9QavR9hfShgpEBG3zekorAeD7W1jfq2o3pump",
+        "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    ]
+    txns = await create_ata_txns_from_tokens(
+        kpair=keypair,
+        tokens=tokens
+    )
+
+    async with AsyncClient(appconfig.RPC_URL_HELIUS) as client:
+
+        for txn in txns:
+            # Simulating the transaction
+            simulation_result = await client.simulate_transaction(txn)
+            if "InvalidParamsMessage" in str(simulation_result):
+                print("Simulation issue: {}".format(simulation_result.message))
+                continue
+
+            if simulation_result.value.err:
+                print("Simulation error:", simulation_result.value.err)
+                continue
+
+            tx_signature = await client.send_transaction(
+                txn=txn,
+                opts=TxOpts(preflight_commitment=Confirmed)
+            )
+            print(f"Transaction sent successfully: {tx_signature}")
+
+            current_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
+            print("Test->{} Transaction: https://solscan.io/tx/{} at {}".format(
+                "Transfer",
+                tx_signature.value,
+                current_time
+            ))
+            await client.confirm_transaction(tx_signature.value, commitment="confirmed")
+            print("Transaction confirmed")
+
+    print("Txns to process: {}".format(len(txns)))
+
+
+async def test_claim_all():
+    from bot.config import appconfig
+    keypair = Keypair.from_base58_string(appconfig.PRIVKEY)
+    owner = keypair.pubkey()
+    tokens = await get_atas_from_owner(owner=owner)
+    transactions = await close_ata_transaction(
+        owner=owner,
+        tokens=tokens,
+        fee=0.2,
+        referrals=[],
+        encode_base64=False
+    )
+    async with AsyncClient(appconfig.RPC_URL_HELIUS) as client:
+        blockhash = await client.get_latest_blockhash()
+        recent_blockhash = blockhash.value.blockhash
+
+        for txn_dict in transactions:
+            txn = Transaction.from_bytes(txn_dict["tx"])
+            txn.sign(keypairs=[keypair], recent_blockhash=recent_blockhash)
+            simulation_result = await client.simulate_transaction(txn)
+
+            if "InvalidParamsMessage" in str(simulation_result):
+                print("Simulation issue: {}".format(simulation_result.message))
+                continue
+
+            if simulation_result.value.err:
+                print("Simulation error:", simulation_result.value.err)
+                continue
+
+            tx_signature = await client.send_transaction(
+                txn=txn,
+                opts=TxOpts(preflight_commitment=Confirmed)
+            )
+            print(f"Transaction sent successfully: {tx_signature}")
+
+            current_time = datetime.now().strftime(appconfig.TIME_FORMAT).lower()
+            print("Test->{} Transaction: https://solscan.io/tx/{} at {}".format(
+                "Transfer",
+                tx_signature.value,
+                current_time
+            ))
+            await client.confirm_transaction(tx_signature.value, commitment="confirmed")
+            print("Transaction confirmed")
+
+
 # import asyncio
-# asyncio.run(recover_rent_client_from_transaction(go_local=False))
+# asyncio.run(test_create_atas())

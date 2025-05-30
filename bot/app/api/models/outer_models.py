@@ -154,6 +154,10 @@ class RequestTransaction(BaseModel):
     fee: float = Field(
         ..., description='GhostFunds fee.'
     )
+    claim_all: bool = Field(
+        default=False,
+        description='States if tokens will not be considered but all available ATAs for the given owner'
+    )
 
 
 class Quote(BaseModel):

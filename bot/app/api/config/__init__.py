@@ -24,7 +24,7 @@ class AuthConfig:
     FEES_BPS = float(os.environ.get("FEES", 0.0005)) * 10000   # Fees in BPS
     GHOSTFUNDS_FIX_FEES = 0.00001
     GHOSTFUNDS_FEES_PERCENTAGES = {
-        1: 0.1,
+        1: 0.19,    # Default value
         100: 0.09,
         500: 0.08,
         1000: 0.07

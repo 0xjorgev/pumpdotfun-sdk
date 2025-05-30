@@ -7,7 +7,7 @@ from api.adapters.strapi_adapter import Middleware
 from api.config import appconfig
 from api.handlers.exceptions import EntityNotFoundException, TooManyInstructionsException, ErrorProcessingData
 from api.models.outer_models import Quote, RequestTransaction
-from api.libs.utils import close_ata_transaction
+from api.libs.utils import close_ata_transaction, get_atas_from_owner
 router = APIRouter()
 
 
@@ -24,11 +24,21 @@ async def request_close_ata_transaction(
         owner = body.owner
         fee = body.fee
         tokens = body.tokens
-        # TODO: implement partner fee and pubkey as optional
+        claim_all = body.claim_all
+
+        if not tokens and not claim_all:
+            instructions = Quote(
+                quote=[]
+            )
+            return instructions
+
+        if claim_all:
+            # Fetching all related ATAs
+            tokens = await get_atas_from_owner(owner=Pubkey.from_string(owner))
 
         if not tokens:
             instructions = Quote(
-                quote=None
+                quote=[]
             )
             return instructions
 
