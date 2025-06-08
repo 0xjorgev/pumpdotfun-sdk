@@ -32,6 +32,15 @@ from config import appconfig
 
 debug = False
 
+translation_validations = [
+    "The translation of",
+    "The Spanish word",
+    "translates to",
+    "The word \"",
+    "provided an emoji",
+    "https://t.me"
+]
+
 
 async def get_bot_channels(
     application: Application,
@@ -97,6 +106,12 @@ async def delivery_msg(
                     target_languege=target_language,
                     text=msg
                 )
+                valid_translation = not any(
+                    validation for validation in translation_validations if validation in translation
+                )
+                if not valid_translation:
+                    return
+
                 msg = translation
 
             await context.bot.send_message(
@@ -117,6 +132,12 @@ async def delivery_msg(
                     target_languege=target_language,
                     text=msg
                 )
+                valid_translation = not any(
+                    validation for validation in translation_validations if validation in translation
+                )
+                if not valid_translation:
+                    return
+
                 msg = translation
 
             await context.bot.send_photo(

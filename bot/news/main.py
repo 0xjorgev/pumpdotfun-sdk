@@ -45,10 +45,10 @@ CHANNELS = [
         "env": "dev",
         "target_channels": [
             {
-                "target": -1002247367774,
+                "target": -1002794766335,
                 "target_language": Language.English,
                 "with_delay": False,
-                "name": "GhostFunds.xyz - Crypto News",
+                "name": "UMOTC - Target",
                 "enabled": True
             }
         ]
