@@ -2,16 +2,22 @@ from fastapi import APIRouter, Depends, Query
 from typing import List
 from pydantic import PositiveInt
 
-from api.models.outer_models import AccountAddressType, AssociatedTokenAccount, AssociatedTokenAccounts
+from api.models.outer_models import AssociatedTokenAccount, AssociatedTokenAccounts
 from api.libs.utils import detect_dust_token_accounts
 from api.config import appconfig
+from api.handlers.exceptions import BadSolanaAddressException
 from solders.pubkey import Pubkey
+
 # Create a router for the associated_token_accounts routes
 router = APIRouter()
 
 
 # Dependency for pre-validation
-def validate_account_address(account_address: AccountAddressType) -> str:
+def validate_account_address(account_address: str) -> str:
+    try:
+        Pubkey.from_string(account_address)
+    except Exception:
+        raise BadSolanaAddressException(detail="Bad account address")
     return account_address
 
 

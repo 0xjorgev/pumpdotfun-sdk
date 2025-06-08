@@ -3,18 +3,6 @@ from typing import Annotated, List, Optional
 from pydantic import AnyUrl, BaseModel, Field, constr
 
 
-AccountAddressType = Annotated[
-    str,
-    Field(
-        pattern=r"^[1-9A-HJ-NP-Za-km-z]{44}$",
-        description=(
-            "The Solana associated token account address. Must be a valid address with 44 characters, "
-            "excluding the letters `l`, `I`, and `O` to avoid ambiguity."
-        )
-    )
-]
-
-
 class CountAssociatedTokenAccounts(BaseModel):
     total_accounts: int = Field(
         0, description='Total number of associated accounts.'

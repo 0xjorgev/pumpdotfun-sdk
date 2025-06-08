@@ -1,8 +1,11 @@
 from fastapi import APIRouter, Depends
 import logging
 
-from api.handlers.exceptions import ErrorProcessingData
-from api.models.outer_models import AccountAddressType, CountAssociatedTokenAccounts
+from api.handlers.exceptions import (
+    BadSolanaAddressException,
+    ErrorProcessingData
+)
+from api.models.outer_models import CountAssociatedTokenAccounts
 from api.libs.utils import count_associated_token_accounts
 from solders.pubkey import Pubkey
 
@@ -11,7 +14,11 @@ router = APIRouter()
 
 
 # Dependency for pre-validation
-def validate_account_address(account_address: AccountAddressType) -> str:
+def validate_account_address(account_address: str) -> str:
+    try:
+        Pubkey.from_string(account_address)
+    except Exception:
+        raise BadSolanaAddressException(detail="Bad account address")
     return account_address
 
 

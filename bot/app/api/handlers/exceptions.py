@@ -1,5 +1,6 @@
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
+from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY
 
 
 # Define custom exception
@@ -24,3 +25,11 @@ def entity_not_found_exception_handler(request: Request, exc: HTTPException):
         status_code=exc.status_code,
         content={"detail": exc.detail},
     )
+
+
+class BadSolanaAddressException(HTTPException):
+    def __init__(self, detail: str):
+        super().__init__(
+            status_code=HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail
+        )
