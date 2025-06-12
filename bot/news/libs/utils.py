@@ -108,7 +108,8 @@ async def delivery_msg(
                 )
                 valid_translation = not any(
                     validation for validation in translation_validations if validation in translation
-                )
+                ) and msg != translation
+
                 if not valid_translation:
                     return
 
@@ -134,7 +135,8 @@ async def delivery_msg(
                 )
                 valid_translation = not any(
                     validation for validation in translation_validations if validation in translation
-                )
+                ) and msg != translation
+
                 if not valid_translation:
                     return
 
